@@ -1,24 +1,9 @@
 import type { Config } from '../config.js';
-import { storeProblem } from '../errors.js';
+import { AppleValidator } from './validators/apple.js';
+import { GoogleValidator } from './validators/google.js';
+import type { StoreValidator, ValidationRequest, ValidationResult } from './validators/types.js';
 
-export interface ValidationRequest {
-  store: 'app_store' | 'play_store' | 'promotional';
-  fetchToken: string;
-  productStoreIdentifier: string;
-}
-
-export interface ValidationResult {
-  /** When the store reports an explicit purchase date; falls back to "now" otherwise. */
-  purchaseDate?: string;
-  /** When the store reports an explicit expiry (subscriptions). Null means lifetime. */
-  expiresDate?: string | null;
-  isSandbox: boolean;
-  periodType?: 'normal' | 'trial' | 'intro';
-}
-
-export interface StoreValidator {
-  validate(req: ValidationRequest): Promise<ValidationResult>;
-}
+export type { StoreValidator, ValidationRequest, ValidationResult };
 
 /**
  * Trust-mode validator: accepts the client's claim without contacting the store.
@@ -28,20 +13,6 @@ export interface StoreValidator {
 class TrustValidator implements StoreValidator {
   async validate(_req: ValidationRequest): Promise<ValidationResult> {
     return { isSandbox: true };
-  }
-}
-
-/** Scaffold: verify a JWS transaction via the Apple App Store Server API. */
-class AppleValidator implements StoreValidator {
-  async validate(_req: ValidationRequest): Promise<ValidationResult> {
-    throw storeProblem('Apple App Store validation is not configured (set APPLE_* credentials).');
-  }
-}
-
-/** Scaffold: verify a purchase token via the Google Play Developer API. */
-class GoogleValidator implements StoreValidator {
-  async validate(_req: ValidationRequest): Promise<ValidationResult> {
-    throw storeProblem('Google Play validation is not configured (set GOOGLE_SERVICE_ACCOUNT_JSON).');
   }
 }
 

@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { Config } from '../config.js';
 import type { DB } from '../db.js';
 import { conflict, invalidRequest, notFound } from '../errors.js';
 import { requireSecretKey } from '../auth.js';
+import { buildDiagnostics } from '../repo/diagnostics.js';
 import { isValidDuration } from '../duration.js';
 import { parse } from '../validate.js';
 import { createApp, deleteApp, getApp, listApps } from '../repo/apps.js';
@@ -43,8 +45,18 @@ import {
   listSubscribers,
   upsertSubscription,
 } from '../repo/subscribers.js';
+import { listEvents } from '../repo/events.js';
+import {
+  createWebhook,
+  deleteWebhook,
+  getWebhook,
+  listDeliveries,
+  listWebhooks,
+  updateWebhook,
+} from '../repo/webhooks.js';
 import { buildCustomerInfo } from '../services/customerInfo.js';
 import { processReceipt } from '../services/receipts.js';
+import { emitEvent } from '../services/webhooks.js';
 import type { Validators } from '../services/validators.js';
 
 function serializeOffering(o: Offering) {
@@ -119,7 +131,7 @@ const importsSchema = z.object({
 
 const grantSchema = z.object({ expires_date: z.string().nullish() });
 
-export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Validators): void {
+export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Validators, config: Config): void {
   app.register(async (scoped) => {
     scoped.addHook('preHandler', requireSecretKey(db));
 
@@ -130,6 +142,30 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       return createProduct(db, body);
     });
     scoped.get('/v1/admin/products', async () => ({ items: listProducts(db) }));
+    scoped.post('/v1/admin/products/import', async (req) => {
+      const body = parse(z.object({ products: z.array(productCreate) }), req.body);
+      let imported = 0;
+      let skipped = 0;
+      const failed: { index: number; error: string }[] = [];
+      body.products.forEach((p, i) => {
+        try {
+          createProduct(db, p);
+          imported++;
+        } catch (err) {
+          if (err instanceof Error && /already exists/.test(err.message)) skipped++;
+          else failed.push({ index: i, error: err instanceof Error ? err.message : String(err) });
+        }
+      });
+      return { imported, skipped, failed };
+    });
+    scoped.post('/v1/admin/products/import/:store', async (req) => {
+      const { store } = req.params as { store: string };
+      if (store !== 'app_store' && store !== 'play_store') {
+        throw invalidRequest('store must be app_store or play_store.');
+      }
+      const { importStoreProducts } = await import('../services/productImport.js');
+      return importStoreProducts(db, store, config);
+    });
     scoped.get('/v1/admin/products/:id', async (req) => {
       const p = getProduct(db, (req.params as { id: string }).id);
       if (!p) throw notFound('No product with that id.');
@@ -295,6 +331,14 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
         expiresDate: body.expires_date ?? null,
         periodType: 'normal',
       });
+      emitEvent(db, {
+        type: 'promotional_grant',
+        subscriberId: subscriber.id,
+        appUserId,
+        productStoreIdentifier: product.store_identifier,
+        store: 'promotional',
+        expiresDate: body.expires_date ?? null,
+      });
       return buildCustomerInfo(db, subscriber);
     });
 
@@ -313,6 +357,52 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       return buildCustomerInfo(db, sub);
     });
 
+    // --- Webhooks ---
+    const webhookCreate = z.object({
+      url: z.string().url(),
+      events: z.union([z.literal('*'), z.array(z.string())]).optional(),
+      active: z.boolean().optional(),
+    });
+    scoped.post('/v1/admin/webhooks', async (req, reply) => {
+      const body = parse(webhookCreate, req.body);
+      reply.code(201);
+      return createWebhook(db, body);
+    });
+    scoped.get('/v1/admin/webhooks', async () => ({ items: listWebhooks(db) }));
+    scoped.get('/v1/admin/webhooks/:id', async (req) => {
+      const wh = getWebhook(db, (req.params as { id: string }).id);
+      if (!wh) throw notFound('No webhook with that id.');
+      return wh;
+    });
+    scoped.patch('/v1/admin/webhooks/:id', async (req) => {
+      const body = parse(webhookCreate.partial(), req.body);
+      return updateWebhook(db, (req.params as { id: string }).id, body);
+    });
+    scoped.delete('/v1/admin/webhooks/:id', async (req) => {
+      if (!deleteWebhook(db, (req.params as { id: string }).id)) throw notFound('No webhook with that id.');
+      return { ok: true };
+    });
+    scoped.get('/v1/admin/webhooks/:id/deliveries', async (req) => ({
+      items: listDeliveries(db, (req.params as { id: string }).id),
+    }));
+    scoped.post('/v1/admin/webhooks/:id/test', async (req) => {
+      const wh = getWebhook(db, (req.params as { id: string }).id);
+      if (!wh) throw notFound('No webhook with that id.');
+      emitEvent(db, { type: 'initial_purchase', appUserId: 'test_user', productStoreIdentifier: 'com.test.product', store: 'app_store', price: 9.99, currency: 'USD', periodType: 'normal' });
+      return { ok: true, message: 'Test event dispatched to all active webhooks.' };
+    });
+
+    // --- Events feed ---
+    scoped.get('/v1/admin/events', async (req) => {
+      const q = req.query as { limit?: string };
+      return { items: listEvents(db, Math.min(Number(q.limit ?? 50), 200)) };
+    });
+
+    // --- SDK diagnostics ---
+    scoped.get('/v1/admin/diagnostics', async () =>
+      buildDiagnostics(db, { app_store: config.appleValidation, play_store: config.googleValidation }),
+    );
+
     // --- Dashboard analytics ---
     scoped.get('/v1/admin/overview', async (req) => {
       const q = req.query as { range?: string };
@@ -320,6 +410,11 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       const { buildOverview } = await import('../services/analytics.js');
       if (Number.isNaN(range)) throw invalidRequest('range must be a number of days.');
       return buildOverview(db, range);
+    });
+
+    scoped.get('/v1/admin/insights', async () => {
+      const { buildInsights } = await import('../services/insights.js');
+      return buildInsights(db);
     });
   });
 }

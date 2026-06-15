@@ -25,7 +25,10 @@ customer data. **RevenueDog gives you the same core workflow, self-hosted and fr
 - 🔑 **Entitlements** — map products to access levels; check `customerInfo.entitlements["pro"].isActive`.
 - 🏷️ **Offerings & paywalls** — configure packages remotely, no app release required.
 - 🧪 **Experiments** — A/B test paywalls with deterministic, sticky assignment and conversion tracking.
-- 📊 **Analytics dashboard** — MRR, revenue, active subscriptions, trials, churn, revenue-by-product, and recent transactions.
+- 📊 **Analytics dashboard** — MRR, revenue, active subscriptions, trials, churn, revenue-by-product, recent transactions, plus a **conversion funnel, LTV, and retention cohorts**.
+- 🔔 **Webhooks** — HMAC-signed events (purchase, renewal, trial, expiration, billing issue…) with a delivery log.
+- 🩺 **SDK diagnostics** — see at a glance whether each app's SDK has connected, with platform & version.
+- 📖 **Interactive API docs** — OpenAPI 3.1 spec served at `/docs`.
 - 🗄️ **Your data** — SQLite by default; everything runs on your own box.
 
 > ⚠️ **Alpha.** The backend, dashboard, and SDK scaffolding are functional and tested.
@@ -104,14 +107,20 @@ See each folder's `README.md` for details.
 
 - [x] Backend API: subscribers, offerings, receipts, entitlements, experiments, admin CRUD
 - [x] Analytics endpoints (MRR, revenue, active subs, status breakdown)
+- [x] Deeper analytics: conversion funnel, LTV (ARPU/ARPPU), signup cohorts & retention
 - [x] Dashboard with charts and full configuration UI
-- [ ] iOS & Android SDKs to 1.0 (purchase + restore + caching)
-- [ ] Real Apple App Store Server API verification
-- [ ] Real Google Play Developer API verification
-- [ ] Webhooks (renewals, cancellations, billing issues)
+- [x] SDK connection / diagnostics indicator
+- [x] OpenAPI 3.1 spec + interactive `/docs` (Redoc)
+- [x] Product catalog import (CSV / bulk JSON; store-API import scaffolded)
+- [x] Webhooks (initial purchase, renewal, trial, expiration, billing issue…) with HMAC signing + delivery log
+- [x] Real Apple App Store JWS verification (ES256 + x5c chain, optional root pinning)
+- [x] Real Google Play Developer API verification (service-account OAuth)
+- [x] iOS & Android SDKs (purchase + restore + caching)
 - [ ] Postgres adapter for scale
 - [ ] Docker Compose one-command deploy
-- [ ] Paywall templates
+- [ ] Visual paywall builder / templates
+- [ ] Dashboard multi-user auth; sandbox vs production separation
+- [ ] More SDKs (Flutter, React Native, Web, Unity)
 
 ## Contributing
 

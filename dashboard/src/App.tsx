@@ -11,11 +11,13 @@ import {
 import { ConnectGate } from './components/ConnectGate.tsx';
 import { Layout } from './components/Layout.tsx';
 import { Overview } from './pages/Overview.tsx';
+import { Insights } from './pages/Insights.tsx';
 import { Customers } from './pages/Customers.tsx';
 import { Products } from './pages/Products.tsx';
 import { Entitlements } from './pages/Entitlements.tsx';
 import { Offerings } from './pages/Offerings.tsx';
 import { Experiments } from './pages/Experiments.tsx';
+import { Webhooks } from './pages/Webhooks.tsx';
 import { Settings } from './pages/Settings.tsx';
 
 export default function App() {
@@ -49,11 +51,13 @@ export default function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/insights" element={<Insights />} />
           <Route path="/customers" element={<Customers />} />
           <Route path="/products" element={<Products />} />
           <Route path="/entitlements" element={<Entitlements />} />
           <Route path="/offerings" element={<Offerings />} />
           <Route path="/experiments" element={<Experiments />} />
+          <Route path="/webhooks" element={<Webhooks />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

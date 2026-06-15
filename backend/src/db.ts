@@ -4,7 +4,7 @@ import { dirname } from 'node:path';
 
 export type DB = Database.Database;
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -150,6 +150,58 @@ CREATE TABLE IF NOT EXISTS receipts (
   UNIQUE (store, fetch_token)
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_subscriber ON receipts(subscriber_id);
+
+-- v2: SDK diagnostics, events, webhooks --
+
+CREATE TABLE IF NOT EXISTS sdk_pings (
+  app_id TEXT NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL,
+  sdk_version TEXT,
+  app_version TEXT,
+  platform_version TEXT,
+  last_seen TEXT NOT NULL,
+  first_seen TEXT NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (app_id, platform)
+);
+
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  subscriber_id TEXT,
+  app_user_id TEXT,
+  product_store_identifier TEXT,
+  store TEXT,
+  price REAL,
+  currency TEXT,
+  period_type TEXT,
+  expires_date TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+CREATE INDEX IF NOT EXISTS idx_events_subscriber ON events(subscriber_id);
+
+CREATE TABLE IF NOT EXISTS webhooks (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  events TEXT NOT NULL DEFAULT '*',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  webhook_id TEXT NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+  event_id TEXT,
+  event_type TEXT NOT NULL,
+  status_code INTEGER,
+  ok INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id);
 `;
 
 export function openDb(path: string): DB {

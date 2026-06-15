@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import { useApi, type AppRow } from '../api.ts';
-import { Button, Card, EmptyState, Field, Input, Modal, PageHeader, Spinner } from '../components/ui.tsx';
+import { useApi, type AppRow, type Diagnostics } from '../api.ts';
+import { Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Spinner } from '../components/ui.tsx';
 import { useResource } from '../lib/useResource.ts';
+import { relativeTime } from '../lib/format.ts';
 
 export function Settings() {
   const { api, conn } = useApi();
   const { data, loading, error, reload } = useResource<{ items: AppRow[] }>(() => api.get('/v1/admin/apps'));
+  const diag = useResource<Diagnostics>(() => api.get('/v1/admin/diagnostics'));
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const diagFor = (id: string) => diag.data?.apps.find((a) => a.id === id);
 
   function copy(text: string) {
     navigator.clipboard.writeText(text);
@@ -42,6 +45,34 @@ export function Settings() {
                     {app.public_api_key}
                     <span className="text-slate-500">{copied === app.public_api_key ? '✓ copied' : '📋'}</span>
                   </button>
+                  <div className="mt-3">
+                    {(() => {
+                      const d = diagFor(app.id);
+                      if (!d || !d.connected) {
+                        return (
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <span className="h-2 w-2 rounded-full bg-slate-600" />
+                            Waiting for first SDK call…
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-xs text-emerald-300">
+                            <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                            SDK connected · last seen {relativeTime(d.last_seen)}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {d.platforms.map((p) => (
+                              <Badge key={p.platform} tone="slate">
+                                {p.platform === 'ios' ? '🍎' : '🤖'} {p.platform} · SDK {p.sdk_version ?? '?'} · {p.request_count} reqs
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
                 <Button
                   variant="danger"
@@ -61,10 +92,32 @@ export function Settings() {
       )}
 
       <Card className="mt-6 p-5">
-        <h3 className="text-sm font-medium text-slate-300">Connection</h3>
-        <p className="mt-2 text-sm text-slate-500">
-          Connected to <span className="font-mono text-slate-300">{conn.baseUrl}</span> with a secret key. The secret key is
-          stored in your browser only and never leaves it except to call this backend.
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-slate-300">System &amp; diagnostics</h3>
+          <a
+            href={`${conn.baseUrl.replace(/\/$/, '')}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-brand-400 hover:text-brand-300"
+          >
+            📖 API docs →
+          </a>
+        </div>
+        {diag.data && (
+          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Diag label="Backend" value={`v${diag.data.backend_version}`} />
+            <Diag label="Apple validation" value={diag.data.validation.app_store} />
+            <Diag label="Google validation" value={diag.data.validation.play_store} />
+            <Diag label="Events" value={`${diag.data.totals.events}`} />
+            <Diag label="Products" value={`${diag.data.totals.products}`} />
+            <Diag label="Entitlements" value={`${diag.data.totals.entitlements}`} />
+            <Diag label="Offerings" value={`${diag.data.totals.offerings}`} />
+            <Diag label="Subscribers" value={`${diag.data.totals.subscribers}`} />
+          </div>
+        )}
+        <p className="mt-4 text-sm text-slate-500">
+          Connected to <span className="font-mono text-slate-300">{conn.baseUrl}</span>. The secret key is stored in your
+          browser only and never leaves it except to call this backend.
         </p>
       </Card>
 
@@ -78,6 +131,15 @@ export function Settings() {
         />
       )}
     </>
+  );
+}
+
+function Diag({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-ink-950/60 p-3">
+      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 font-medium text-slate-200">{value}</p>
+    </div>
   );
 }
 

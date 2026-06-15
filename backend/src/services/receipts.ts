@@ -12,6 +12,7 @@ import {
   type SubStore,
 } from '../repo/subscribers.js';
 import { buildCustomerInfo, type CustomerInfo } from './customerInfo.js';
+import { emitEvent } from './webhooks.js';
 import type { Validators } from './validators.js';
 
 export interface ProcessReceiptInput {
@@ -51,10 +52,20 @@ export async function processReceipt(
   });
   const purchaseDate = validation.purchaseDate ?? nowIso();
 
+  const priorReceiptCount = (
+    db
+      .prepare('SELECT COUNT(*) AS c FROM receipts WHERE subscriber_id = ? AND product_store_identifier = ?')
+      .get(subscriber.id, input.productId) as { c: number }
+  ).c;
+
+  let eventType: 'initial_purchase' | 'renewal' | 'trial_started' | 'non_renewing_purchase';
+
   if (product.type === 'subscription') {
     let expiresDate: string | null;
     if (validation.expiresDate !== undefined) expiresDate = validation.expiresDate;
     else expiresDate = product.duration ? addDuration(purchaseDate, product.duration) : null;
+    eventType =
+      validation.periodType === 'trial' ? 'trial_started' : priorReceiptCount > 0 ? 'renewal' : 'initial_purchase';
     upsertSubscription(db, {
       subscriberId: subscriber.id,
       productStoreIdentifier: input.productId,
@@ -66,6 +77,7 @@ export async function processReceipt(
       willRenew: true,
     });
   } else {
+    eventType = 'non_renewing_purchase';
     insertNonSubscription(db, {
       subscriberId: subscriber.id,
       productStoreIdentifier: input.productId,
@@ -84,6 +96,17 @@ export async function processReceipt(
     presentedOfferingIdentifier: input.presentedOfferingIdentifier ?? null,
     price: input.price ?? null,
     currency: input.currency ?? null,
+  });
+
+  emitEvent(db, {
+    type: eventType,
+    subscriberId: subscriber.id,
+    appUserId: input.appUserId,
+    productStoreIdentifier: input.productId,
+    store: input.store,
+    price: input.price ?? null,
+    currency: input.currency ?? null,
+    periodType: validation.periodType ?? 'normal',
   });
 
   const fresh = findSubscriber(db, input.appUserId) ?? subscriber;

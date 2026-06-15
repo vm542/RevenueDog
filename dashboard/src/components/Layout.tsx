@@ -4,11 +4,13 @@ import { useApi } from '../api.ts';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: '📊', end: true },
+  { to: '/insights', label: 'Insights', icon: '📈' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/products', label: 'Products', icon: '📦' },
   { to: '/entitlements', label: 'Entitlements', icon: '🔑' },
   { to: '/offerings', label: 'Offerings', icon: '🏷️' },
   { to: '/experiments', label: 'Experiments', icon: '🧪' },
+  { to: '/webhooks', label: 'Webhooks', icon: '🔔' },
   { to: '/settings', label: 'Apps & Keys', icon: '⚙️' },
 ];
 
@@ -39,6 +41,14 @@ export function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="space-y-2 border-t border-white/5 pt-4">
+          <a
+            href={`${conn.baseUrl.replace(/\/$/, '')}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
+          >
+            <span className="text-base">📖</span> API Docs
+          </a>
           <p className="truncate px-3 text-xs text-slate-500" title={conn.baseUrl}>
             {conn.baseUrl}
           </p>

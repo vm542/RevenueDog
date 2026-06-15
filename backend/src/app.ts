@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
 import type { DB } from './db.js';
@@ -44,8 +47,54 @@ export function buildApp({ db, config, logger = false }: BuildAppOptions): Fasti
 
   app.get('/health', async () => ({ ok: true, service: 'revenuedog', version: '0.1.0' }));
 
+  // --- Interactive API docs (public) ---
+  app.get('/openapi.json', async (_req, reply) => {
+    const spec = loadOpenApiSpec();
+    if (!spec) {
+      reply.code(404).send({ error: { code: 'resource_not_found', message: 'OpenAPI spec not found. Generate docs/openapi.json.' } });
+      return;
+    }
+    reply.header('Content-Type', 'application/json').send(spec);
+  });
+
+  app.get('/docs', async (_req, reply) => {
+    reply.header('Content-Type', 'text/html').send(REDOC_HTML);
+  });
+
   registerPublicRoutes(app, db, validators);
-  registerAdminRoutes(app, db, validators);
+  registerAdminRoutes(app, db, validators, config);
 
   return app;
 }
+
+function loadOpenApiSpec(): string | null {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    process.env.OPENAPI_PATH,
+    join(process.cwd(), '..', 'docs', 'openapi.json'),
+    join(here, '..', '..', 'docs', 'openapi.json'),
+    join(here, '..', '..', '..', 'docs', 'openapi.json'),
+  ].filter(Boolean) as string[];
+  for (const path of candidates) {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+const REDOC_HTML = `<!doctype html>
+<html>
+  <head>
+    <title>RevenueDog API</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>body { margin: 0; }</style>
+  </head>
+  <body>
+    <redoc spec-url="/openapi.json" theme='{"colors":{"primary":{"main":"#6366f1"}}}'></redoc>
+    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+  </body>
+</html>`;

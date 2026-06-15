@@ -3,6 +3,7 @@ import type { DB } from './db.js';
 import { forbidden, unauthorized } from './errors.js';
 import { genKey, nowIso } from './ids.js';
 import type { AppRow } from './repo/apps.js';
+import { recordSdkPing } from './repo/diagnostics.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -33,6 +34,11 @@ export function requirePublicKey(db: DB) {
     const app = db.prepare('SELECT * FROM apps WHERE public_api_key = ?').get(key) as AppRow | undefined;
     if (!app) throw unauthorized('Unknown API key.');
     req.app = app;
+    try {
+      recordSdkPing(db, app.id, req);
+    } catch {
+      // diagnostics are best-effort; never fail a request because of them
+    }
   };
 }
 

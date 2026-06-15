@@ -8,13 +8,21 @@ export function Products() {
   const { api } = useApi();
   const { data, loading, error, reload } = useResource<{ items: Product[] }>(() => api.get('/v1/admin/products'));
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   return (
     <>
       <PageHeader
         title="Products"
         subtitle="Store products synced from App Store Connect / Play Console"
-        actions={<Button onClick={() => setCreating(true)}>+ New product</Button>}
+        actions={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setImporting(true)}>
+              Import
+            </Button>
+            <Button onClick={() => setCreating(true)}>+ New product</Button>
+          </div>
+        }
       />
       {error && <p className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p>}
       {loading ? (
@@ -72,7 +80,106 @@ export function Products() {
           }}
         />
       )}
+      {importing && (
+        <ImportProducts
+          onClose={() => setImporting(false)}
+          onImported={() => {
+            setImporting(false);
+            reload();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ImportProducts({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+  const { api } = useApi();
+  const [csv, setCsv] = useState(
+    'com.app.pro.monthly,subscription,app_store,Pro Monthly,P1M\ncom.app.pro.annual,subscription,app_store,Pro Annual,P1Y',
+  );
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function parseCsv() {
+    return csv
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [store_identifier, type, store, display_name, duration] = line.split(',').map((s) => s.trim());
+        return {
+          store_identifier,
+          type: type || 'subscription',
+          store: store || 'app_store',
+          display_name: display_name || store_identifier,
+          duration: duration || null,
+        };
+      });
+  }
+
+  async function importCsv() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await api.post<{ imported: number; skipped: number; failed: unknown[] }>('/v1/admin/products/import', {
+        products: parseCsv(),
+      });
+      setResult(`Imported ${res.imported}, skipped ${res.skipped}, failed ${res.failed.length}.`);
+      if (res.imported > 0) setTimeout(onImported, 1200);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importFromStore(store: 'app_store' | 'play_store') {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await api.post<{ imported: number }>(`/v1/admin/products/import/${store}`);
+      setResult(`Imported ${res.imported} from ${store}.`);
+      setTimeout(onImported, 1200);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Import products" onClose={onClose}>
+      <div className="space-y-4">
+        <Field label="CSV — store_identifier,type,store,display_name,duration">
+          <textarea
+            value={csv}
+            onChange={(e) => setCsv(e.target.value)}
+            rows={6}
+            className="w-full rounded-lg border border-white/10 bg-ink-950 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-brand-500"
+          />
+        </Field>
+        <div className="flex gap-2">
+          <Button onClick={importCsv} disabled={busy}>
+            {busy ? 'Importing…' : 'Import CSV'}
+          </Button>
+          <Button variant="ghost" onClick={() => importFromStore('app_store')} disabled={busy}>
+            From App Store
+          </Button>
+          <Button variant="ghost" onClick={() => importFromStore('play_store')} disabled={busy}>
+            From Play
+          </Button>
+        </div>
+        {result && <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">{result}</p>}
+        {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
+        <p className="text-xs text-slate-500">
+          “From App Store / Play” pulls your catalog directly once store credentials are configured on the backend.
+        </p>
+      </div>
+    </Modal>
   );
 }
 

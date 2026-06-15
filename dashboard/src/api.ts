@@ -180,3 +180,74 @@ export interface AppRow {
   package_name: string | null;
   created_at: string;
 }
+
+export interface Diagnostics {
+  backend_version: string;
+  generated_at: string;
+  validation: { app_store: string; play_store: string };
+  totals: { apps: number; products: number; entitlements: number; offerings: number; subscribers: number; events: number };
+  apps: {
+    id: string;
+    name: string;
+    connected: boolean;
+    last_seen: string | null;
+    platforms: { platform: string; sdk_version: string | null; app_version: string | null; last_seen: string; request_count: number }[];
+  }[];
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  secret: string;
+  events: string[] | '*';
+  active: boolean;
+  created_at: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhook_id: string;
+  event_type: string;
+  status_code: number | null;
+  ok: number;
+  error: string | null;
+  created_at: string;
+}
+
+export interface EventRow {
+  id: string;
+  type: string;
+  app_user_id: string | null;
+  product_store_identifier: string | null;
+  store: string | null;
+  price: number | null;
+  currency: string | null;
+  created_at: string;
+}
+
+export interface Insights {
+  generated_at: string;
+  funnel: { stage: string; count: number }[];
+  trial_conversion: { trials: number; converted: number; rate: number };
+  ltv: { total_customers: number; paying_customers: number; total_revenue: number; arpu: number; arppu: number };
+  cohorts: {
+    cohort: string;
+    customers: number;
+    paying: number;
+    revenue: number;
+    revenue_per_customer: number;
+    active_now: number;
+    retention_pct: number;
+  }[];
+}
+
+export const EVENT_TYPES = [
+  'initial_purchase',
+  'renewal',
+  'trial_started',
+  'non_renewing_purchase',
+  'promotional_grant',
+  'expiration',
+  'billing_issue',
+  'cancellation',
+];

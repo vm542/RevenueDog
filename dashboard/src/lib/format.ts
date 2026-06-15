@@ -21,6 +21,19 @@ export function dateTime(iso: string): string {
   });
 }
 
+export function relativeTime(iso: string | null): string {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const s = Math.round(diff / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
+
 export function durationLabel(d: string | null): string {
   if (!d) return 'Non-renewing';
   const map: Record<string, string> = {

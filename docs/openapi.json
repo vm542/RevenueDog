@@ -1,0 +1,456 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RevenueDog API",
+    "version": "0.1.0",
+    "description": "Open-source, self-hostable subscription & in-app-purchase management API (a RevenueCat alternative). Public endpoints (`/v1/*`) use a per-app public key (`pk_`); admin endpoints (`/v1/admin/*`) use a secret key (`sk_`).",
+    "license": { "name": "MIT", "url": "https://opensource.org/licenses/MIT" }
+  },
+  "servers": [{ "url": "http://localhost:8787", "description": "Local development" }],
+  "security": [{ "secretKey": [] }],
+  "tags": [
+    { "name": "Health" },
+    { "name": "Docs" },
+    { "name": "Public (SDK)" },
+    { "name": "Admin: Products" },
+    { "name": "Admin: Entitlements" },
+    { "name": "Admin: Offerings" },
+    { "name": "Admin: Experiments" },
+    { "name": "Admin: Apps" },
+    { "name": "Admin: Subscribers" },
+    { "name": "Admin: Webhooks" },
+    { "name": "Admin: Analytics" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" }, "service": { "type": "string" }, "version": { "type": "string" } } } } }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": { "tags": ["Docs"], "summary": "This OpenAPI document", "security": [], "responses": { "200": { "description": "OpenAPI 3.1 spec" } } }
+    },
+    "/docs": {
+      "get": { "tags": ["Docs"], "summary": "Interactive API reference (Redoc)", "security": [], "responses": { "200": { "description": "HTML docs page" } } }
+    },
+    "/v1/subscribers/{app_user_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }],
+      "get": {
+        "tags": ["Public (SDK)"],
+        "summary": "Get (or create) a subscriber",
+        "description": "Returns CustomerInfo. Creates the subscriber on first call (first-seen registration).",
+        "security": [{ "publicKey": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/XPlatform" },
+          { "$ref": "#/components/parameters/XPlatformVersion" },
+          { "$ref": "#/components/parameters/XSdkVersion" },
+          { "$ref": "#/components/parameters/XAppVersion" }
+        ],
+        "responses": {
+          "200": { "$ref": "#/components/responses/CustomerInfo" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "delete": {
+        "tags": ["Public (SDK)"],
+        "summary": "Delete a subscriber (GDPR)",
+        "security": [{ "publicKey": [] }],
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/v1/subscribers/{app_user_id}/offerings": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }],
+      "get": {
+        "tags": ["Public (SDK)"],
+        "summary": "Get offerings for the calling platform",
+        "description": "Experiment-aware; resolves each package's product for the X-Platform header.",
+        "security": [{ "publicKey": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/XPlatform" }],
+        "responses": {
+          "200": { "description": "Offerings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfferingsResponse" } } } }
+        }
+      }
+    },
+    "/v1/receipts": {
+      "post": {
+        "tags": ["Public (SDK)"],
+        "summary": "Submit a purchase receipt",
+        "description": "Validates the receipt, unlocks entitlements, and returns CustomerInfo. Idempotent per (store, fetch_token).",
+        "security": [{ "publicKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReceiptRequest" } } }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/CustomerInfo" },
+          "422": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/v1/subscribers/{app_user_id}/alias": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }],
+      "post": {
+        "tags": ["Public (SDK)"],
+        "summary": "Alias / merge identities (logIn)",
+        "security": [{ "publicKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["new_app_user_id"], "properties": { "new_app_user_id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "CustomerInfo plus `created` flag", "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/CustomerInfo" }, { "type": "object", "properties": { "created": { "type": "boolean" } } }] } } } } }
+      }
+    },
+    "/v1/subscribers/{app_user_id}/attributes": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }],
+      "post": {
+        "tags": ["Public (SDK)"],
+        "summary": "Set subscriber attributes",
+        "security": [{ "publicKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["attributes"], "properties": { "attributes": { "type": "object", "additionalProperties": { "type": "object", "properties": { "value": { "type": ["string", "null"] } } } } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" } }
+      }
+    },
+    "/v1/admin/products": {
+      "get": { "tags": ["Admin: Products"], "summary": "List products", "responses": { "200": { "$ref": "#/components/responses/ProductList" } } },
+      "post": { "tags": ["Admin: Products"], "summary": "Create product", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductCreate" } } } }, "responses": { "201": { "$ref": "#/components/responses/Product" }, "409": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/products/import": {
+      "post": { "tags": ["Admin: Products"], "summary": "Bulk import products", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["products"], "properties": { "products": { "type": "array", "items": { "$ref": "#/components/schemas/ProductCreate" } } } } } } }, "responses": { "200": { "description": "Import result", "content": { "application/json": { "schema": { "type": "object", "properties": { "imported": { "type": "integer" }, "skipped": { "type": "integer" }, "failed": { "type": "array", "items": { "type": "object" } } } } } } } } }
+    },
+    "/v1/admin/products/import/{store}": {
+      "post": { "tags": ["Admin: Products"], "summary": "Import catalog from store API", "parameters": [{ "name": "store", "in": "path", "required": true, "schema": { "type": "string", "enum": ["app_store", "play_store"] } }], "responses": { "200": { "description": "Import result" }, "502": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/products/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Products"], "summary": "Get product", "responses": { "200": { "$ref": "#/components/responses/Product" }, "404": { "$ref": "#/components/responses/Error" } } },
+      "patch": { "tags": ["Admin: Products"], "summary": "Update product", "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductCreate" } } } }, "responses": { "200": { "$ref": "#/components/responses/Product" } } },
+      "delete": { "tags": ["Admin: Products"], "summary": "Delete product", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/entitlements": {
+      "get": { "tags": ["Admin: Entitlements"], "summary": "List entitlements", "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Entitlement" } } } } } } } } },
+      "post": { "tags": ["Admin: Entitlements"], "summary": "Create entitlement", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementCreate" } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Entitlement" } } } } } }
+    },
+    "/v1/admin/entitlements/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Entitlements"], "summary": "Get entitlement", "responses": { "200": { "description": "Entitlement", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Entitlement" } } } }, "404": { "$ref": "#/components/responses/Error" } } },
+      "patch": { "tags": ["Admin: Entitlements"], "summary": "Update entitlement", "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EntitlementCreate" } } } }, "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Entitlement" } } } } } },
+      "delete": { "tags": ["Admin: Entitlements"], "summary": "Delete entitlement", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/offerings": {
+      "get": { "tags": ["Admin: Offerings"], "summary": "List offerings", "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Offering" } } } } } } } } },
+      "post": { "tags": ["Admin: Offerings"], "summary": "Create offering", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfferingCreate" } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Offering" } } } } } }
+    },
+    "/v1/admin/offerings/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Offerings"], "summary": "Get offering", "responses": { "200": { "description": "Offering", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Offering" } } } } } },
+      "patch": { "tags": ["Admin: Offerings"], "summary": "Update offering", "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfferingCreate" } } } }, "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Offering" } } } } } },
+      "delete": { "tags": ["Admin: Offerings"], "summary": "Delete offering", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/experiments": {
+      "get": { "tags": ["Admin: Experiments"], "summary": "List experiments", "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Experiment" } } } } } } } } },
+      "post": { "tags": ["Admin: Experiments"], "summary": "Create experiment", "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExperimentCreate" } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Experiment" } } } } } }
+    },
+    "/v1/admin/experiments/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Experiments"], "summary": "Get experiment", "responses": { "200": { "description": "Experiment", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Experiment" } } } } } },
+      "patch": { "tags": ["Admin: Experiments"], "summary": "Update experiment", "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExperimentCreate" } } } }, "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Experiment" } } } } } },
+      "delete": { "tags": ["Admin: Experiments"], "summary": "Delete experiment", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/experiments/{id}/stop": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "tags": ["Admin: Experiments"], "summary": "Stop experiment", "responses": { "200": { "description": "Stopped", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Experiment" } } } } } }
+    },
+    "/v1/admin/experiments/{id}/results": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Experiments"], "summary": "Experiment results", "responses": { "200": { "description": "Per-variant enrollment/conversion", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExperimentResults" } } } } } }
+    },
+    "/v1/admin/apps": {
+      "get": { "tags": ["Admin: Apps"], "summary": "List apps", "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/App" } } } } } } } } },
+      "post": { "tags": ["Admin: Apps"], "summary": "Create app (generates a pk_ key)", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "bundle_id": { "type": ["string", "null"] }, "package_name": { "type": ["string", "null"] } } } } } }, "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/App" } } } } } }
+    },
+    "/v1/admin/apps/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Apps"], "summary": "Get app", "responses": { "200": { "description": "App", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/App" } } } } } },
+      "delete": { "tags": ["Admin: Apps"], "summary": "Delete app", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/imports": {
+      "post": { "tags": ["Admin: Subscribers"], "summary": "Bulk import historical receipts", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["receipts"], "properties": { "receipts": { "type": "array", "items": { "$ref": "#/components/schemas/ReceiptRequest" } } } } } } }, "responses": { "200": { "description": "Import result", "content": { "application/json": { "schema": { "type": "object", "properties": { "imported": { "type": "integer" }, "failed": { "type": "array", "items": { "type": "object" } } } } } } } } }
+    },
+    "/v1/admin/subscribers": {
+      "get": { "tags": ["Admin: Subscribers"], "summary": "List subscribers", "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer" } }, { "name": "offset", "in": "query", "schema": { "type": "integer" } }], "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/SubscriberSummary" } } } } } } } } }
+    },
+    "/v1/admin/subscribers/{app_user_id}": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }],
+      "get": { "tags": ["Admin: Subscribers"], "summary": "Get subscriber CustomerInfo", "responses": { "200": { "$ref": "#/components/responses/CustomerInfo" }, "404": { "$ref": "#/components/responses/Error" } } }
+    },
+    "/v1/admin/subscribers/{app_user_id}/entitlements/{identifier}/grant": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }, { "name": "identifier", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": { "tags": ["Admin: Subscribers"], "summary": "Grant a promotional entitlement", "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "expires_date": { "type": ["string", "null"], "format": "date-time" } } } } } }, "responses": { "200": { "$ref": "#/components/responses/CustomerInfo" } } }
+    },
+    "/v1/admin/subscribers/{app_user_id}/entitlements/{identifier}/revoke": {
+      "parameters": [{ "$ref": "#/components/parameters/AppUserId" }, { "name": "identifier", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": { "tags": ["Admin: Subscribers"], "summary": "Revoke a promotional entitlement", "responses": { "200": { "$ref": "#/components/responses/CustomerInfo" } } }
+    },
+    "/v1/admin/webhooks": {
+      "get": { "tags": ["Admin: Webhooks"], "summary": "List webhooks", "responses": { "200": { "description": "List", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Webhook" } } } } } } } } },
+      "post": { "tags": ["Admin: Webhooks"], "summary": "Create webhook", "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri" }, "events": { "oneOf": [{ "type": "string", "enum": ["*"] }, { "type": "array", "items": { "type": "string" } }] }, "active": { "type": "boolean" } } } } } }, "responses": { "201": { "description": "Created (includes signing secret)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Webhook" } } } } } }
+    },
+    "/v1/admin/webhooks/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Webhooks"], "summary": "Get webhook", "responses": { "200": { "description": "Webhook", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Webhook" } } } } } },
+      "patch": { "tags": ["Admin: Webhooks"], "summary": "Update webhook", "requestBody": { "content": { "application/json": { "schema": { "type": "object" } } } }, "responses": { "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Webhook" } } } } } },
+      "delete": { "tags": ["Admin: Webhooks"], "summary": "Delete webhook", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/webhooks/{id}/deliveries": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "tags": ["Admin: Webhooks"], "summary": "List delivery attempts", "responses": { "200": { "description": "Deliveries", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "object" } } } } } } } } }
+    },
+    "/v1/admin/webhooks/{id}/test": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "tags": ["Admin: Webhooks"], "summary": "Dispatch a test event", "responses": { "200": { "$ref": "#/components/responses/Ok" } } }
+    },
+    "/v1/admin/events": {
+      "get": { "tags": ["Admin: Analytics"], "summary": "Recent events feed", "parameters": [{ "name": "limit", "in": "query", "schema": { "type": "integer" } }], "responses": { "200": { "description": "Events", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "type": "object" } } } } } } } } }
+    },
+    "/v1/admin/diagnostics": {
+      "get": { "tags": ["Admin: Analytics"], "summary": "SDK connection & system diagnostics", "responses": { "200": { "description": "Diagnostics", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Diagnostics" } } } } } }
+    },
+    "/v1/admin/overview": {
+      "get": { "tags": ["Admin: Analytics"], "summary": "Dashboard overview metrics", "parameters": [{ "name": "range", "in": "query", "schema": { "type": "integer", "default": 28 } }], "responses": { "200": { "description": "Overview", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Overview" } } } } } }
+    },
+    "/v1/admin/insights": {
+      "get": { "tags": ["Admin: Analytics"], "summary": "Funnel, LTV & cohort insights", "responses": { "200": { "description": "Insights", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Insights" } } } } } }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "publicKey": { "type": "http", "scheme": "bearer", "description": "App public key (pk_). Safe to ship in mobile apps." },
+      "secretKey": { "type": "http", "scheme": "bearer", "description": "Secret key (sk_). Server/dashboard only." }
+    },
+    "parameters": {
+      "AppUserId": { "name": "app_user_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "Id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "XPlatform": { "name": "X-Platform", "in": "header", "required": true, "schema": { "type": "string", "enum": ["ios", "android"] } },
+      "XPlatformVersion": { "name": "X-Platform-Version", "in": "header", "schema": { "type": "string" } },
+      "XSdkVersion": { "name": "X-SDK-Version", "in": "header", "schema": { "type": "string" } },
+      "XAppVersion": { "name": "X-App-Version", "in": "header", "schema": { "type": "string" } }
+    },
+    "responses": {
+      "Ok": { "description": "Success", "content": { "application/json": { "schema": { "type": "object", "properties": { "ok": { "type": "boolean" } } } } } },
+      "Error": { "description": "Error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "CustomerInfo": { "description": "CustomerInfo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CustomerInfo" } } } },
+      "Product": { "description": "Product", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } } },
+      "ProductList": { "description": "Product list", "content": { "application/json": { "schema": { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } } } } } } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string", "enum": ["invalid_request", "unauthorized", "forbidden", "resource_not_found", "conflict", "receipt_validation_failed", "store_problem", "internal_error"] },
+              "message": { "type": "string" }
+            }
+          }
+        }
+      },
+      "ReceiptRequest": {
+        "type": "object",
+        "required": ["app_user_id", "fetch_token", "product_id", "store"],
+        "properties": {
+          "app_user_id": { "type": "string" },
+          "fetch_token": { "type": "string" },
+          "product_id": { "type": "string" },
+          "store": { "type": "string", "enum": ["app_store", "play_store"] },
+          "presented_offering_identifier": { "type": ["string", "null"] },
+          "price": { "type": ["number", "null"] },
+          "currency": { "type": ["string", "null"] }
+        }
+      },
+      "EntitlementInfo": {
+        "type": "object",
+        "properties": {
+          "expires_date": { "type": ["string", "null"], "format": "date-time" },
+          "purchase_date": { "type": "string", "format": "date-time" },
+          "product_identifier": { "type": "string" },
+          "grace_period_expires_date": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "SubscriptionInfo": {
+        "type": "object",
+        "properties": {
+          "purchase_date": { "type": "string", "format": "date-time" },
+          "original_purchase_date": { "type": "string", "format": "date-time" },
+          "expires_date": { "type": ["string", "null"], "format": "date-time" },
+          "store": { "type": "string" },
+          "unsubscribe_detected_at": { "type": ["string", "null"], "format": "date-time" },
+          "billing_issues_detected_at": { "type": ["string", "null"], "format": "date-time" },
+          "grace_period_expires_date": { "type": ["string", "null"], "format": "date-time" },
+          "is_sandbox": { "type": "boolean" },
+          "period_type": { "type": "string", "enum": ["normal", "trial", "intro"] },
+          "will_renew": { "type": "boolean" }
+        }
+      },
+      "CustomerInfo": {
+        "type": "object",
+        "properties": {
+          "request_date": { "type": "string", "format": "date-time" },
+          "subscriber": {
+            "type": "object",
+            "properties": {
+              "original_app_user_id": { "type": "string" },
+              "first_seen": { "type": "string", "format": "date-time" },
+              "last_seen": { "type": "string", "format": "date-time" },
+              "management_url": { "type": ["string", "null"] },
+              "entitlements": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/EntitlementInfo" } },
+              "subscriptions": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/SubscriptionInfo" } },
+              "non_subscriptions": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object" } } },
+              "subscriber_attributes": { "type": "object", "additionalProperties": { "type": "object", "properties": { "value": { "type": "string" }, "updated_at": { "type": "string", "format": "date-time" } } } }
+            }
+          }
+        }
+      },
+      "OfferingsResponse": {
+        "type": "object",
+        "properties": {
+          "current_offering_id": { "type": ["string", "null"] },
+          "offerings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "identifier": { "type": "string" },
+                "description": { "type": "string" },
+                "metadata": { "type": "object" },
+                "packages": { "type": "array", "items": { "type": "object", "properties": { "identifier": { "type": "string" }, "platform_product_identifier": { "type": "string" } } } }
+              }
+            }
+          },
+          "experiment": { "type": ["object", "null"], "properties": { "id": { "type": "string" }, "variant": { "type": "string", "enum": ["control", "treatment"] } } }
+        }
+      },
+      "ProductCreate": {
+        "type": "object",
+        "required": ["store_identifier", "type", "store", "display_name"],
+        "properties": {
+          "store_identifier": { "type": "string" },
+          "type": { "type": "string", "enum": ["subscription", "non_consumable", "consumable"] },
+          "store": { "type": "string", "enum": ["app_store", "play_store"] },
+          "display_name": { "type": "string" },
+          "duration": { "type": ["string", "null"], "description": "ISO-8601 duration, e.g. P1M" }
+        }
+      },
+      "Product": { "allOf": [{ "type": "object", "properties": { "id": { "type": "string" } } }, { "$ref": "#/components/schemas/ProductCreate" }] },
+      "EntitlementCreate": {
+        "type": "object",
+        "required": ["identifier", "display_name"],
+        "properties": { "identifier": { "type": "string" }, "display_name": { "type": "string" }, "product_ids": { "type": "array", "items": { "type": "string" } } }
+      },
+      "Entitlement": { "allOf": [{ "type": "object", "properties": { "id": { "type": "string" } } }, { "$ref": "#/components/schemas/EntitlementCreate" }] },
+      "OfferingPackage": { "type": "object", "properties": { "identifier": { "type": "string" }, "product_ids": { "type": "array", "items": { "type": "string" } } } },
+      "OfferingCreate": {
+        "type": "object",
+        "required": ["identifier"],
+        "properties": {
+          "identifier": { "type": "string" },
+          "description": { "type": "string" },
+          "metadata": { "type": "object" },
+          "is_current": { "type": "boolean" },
+          "packages": { "type": "array", "items": { "$ref": "#/components/schemas/OfferingPackage" } }
+        }
+      },
+      "Offering": { "allOf": [{ "type": "object", "properties": { "id": { "type": "string" } } }, { "$ref": "#/components/schemas/OfferingCreate" }] },
+      "ExperimentCreate": {
+        "type": "object",
+        "required": ["name", "control_offering_id", "treatment_offering_id", "traffic_pct"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "running", "stopped"] },
+          "control_offering_id": { "type": "string" },
+          "treatment_offering_id": { "type": "string" },
+          "traffic_pct": { "type": "integer", "minimum": 0, "maximum": 100 }
+        }
+      },
+      "Experiment": { "allOf": [{ "type": "object", "properties": { "id": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" } } }, { "$ref": "#/components/schemas/ExperimentCreate" }] },
+      "ExperimentResults": {
+        "type": "object",
+        "properties": {
+          "control": { "$ref": "#/components/schemas/VariantResult" },
+          "treatment": { "$ref": "#/components/schemas/VariantResult" }
+        }
+      },
+      "VariantResult": { "type": "object", "properties": { "enrolled": { "type": "integer" }, "purchases": { "type": "integer" }, "revenue": { "type": "number" } } },
+      "App": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "public_api_key": { "type": "string" },
+          "bundle_id": { "type": ["string", "null"] },
+          "package_name": { "type": ["string", "null"] },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SubscriberSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "original_app_user_id": { "type": "string" },
+          "first_seen": { "type": "string", "format": "date-time" },
+          "last_seen": { "type": "string", "format": "date-time" },
+          "active_entitlements": { "type": "array", "items": { "type": "string" } },
+          "active_subscriptions": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "Webhook": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "url": { "type": "string", "format": "uri" },
+          "secret": { "type": "string" },
+          "events": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+          "active": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Diagnostics": {
+        "type": "object",
+        "properties": {
+          "backend_version": { "type": "string" },
+          "generated_at": { "type": "string", "format": "date-time" },
+          "validation": { "type": "object", "properties": { "app_store": { "type": "string" }, "play_store": { "type": "string" } } },
+          "totals": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "apps": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "connected": { "type": "boolean" }, "last_seen": { "type": ["string", "null"] }, "platforms": { "type": "array", "items": { "type": "object" } } } } }
+        }
+      },
+      "Overview": {
+        "type": "object",
+        "properties": {
+          "generated_at": { "type": "string", "format": "date-time" },
+          "range_days": { "type": "integer" },
+          "kpis": { "type": "object", "additionalProperties": { "type": "number" } },
+          "charts": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "object", "properties": { "date": { "type": "string" }, "value": { "type": "number" } } } } },
+          "revenue_by_product": { "type": "array", "items": { "type": "object", "properties": { "product": { "type": "string" }, "revenue": { "type": "number" } } } },
+          "subscription_status": { "type": "array", "items": { "type": "object", "properties": { "status": { "type": "string" }, "count": { "type": "integer" } } } },
+          "recent_transactions": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "Insights": {
+        "type": "object",
+        "properties": {
+          "generated_at": { "type": "string", "format": "date-time" },
+          "funnel": { "type": "array", "items": { "type": "object", "properties": { "stage": { "type": "string" }, "count": { "type": "integer" } } } },
+          "trial_conversion": { "type": "object", "properties": { "trials": { "type": "integer" }, "converted": { "type": "integer" }, "rate": { "type": "number" } } },
+          "ltv": { "type": "object", "additionalProperties": { "type": "number" } },
+          "cohorts": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}

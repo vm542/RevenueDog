@@ -277,16 +277,60 @@ and `.../revoke`.
 
 ---
 
+### Product import — `POST /v1/admin/products/import`
+Bulk-create products (CSV/JSON migration). Body `{ "products": [ <Product create shape> ] }`.
+Returns `{ "imported": 2, "skipped": 1, "failed": [ { "index": 3, "error": "..." } ] }`
+(duplicates by `(store_identifier, store)` count as `skipped`).
+`POST /v1/admin/products/import/{store}` (`app_store`|`play_store`) imports directly from the
+store developer API; returns `store_problem` until store credentials are configured.
+
+### Webhooks — `/v1/admin/webhooks`
+```json
+{ "id": "wh_x", "url": "https://you/hook", "secret": "whsec_…", "events": "*", "active": true }
+```
+`POST` create (generates `secret`), `GET` list, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`.
+`events` is `"*"` or an array of event types. Deliveries are POSTed with header
+`X-RevenueDog-Signature: <hex hmac-sha256(body, secret)>` and this payload:
+```json
+{ "api_version": "1.0",
+  "event": { "id": "evt_x", "type": "initial_purchase", "app_user_id": "u1",
+             "product_id": "com.app.pro.monthly", "store": "app_store", "price": 9.99,
+             "currency": "USD", "period_type": "normal", "expiration_at": "…", "event_timestamp": "…" } }
+```
+Event types: `initial_purchase`, `renewal`, `trial_started`, `non_renewing_purchase`,
+`promotional_grant`, `expiration`, `billing_issue`, `cancellation`.
+`GET /{id}/deliveries` returns recent delivery attempts; `POST /{id}/test` dispatches a test event.
+
+### Events feed — `GET /v1/admin/events`
+`{ "items": [ <event> ] }`, most recent first (`?limit=` up to 200).
+
+### Diagnostics — `GET /v1/admin/diagnostics`
+Reports backend version, validation modes, totals, and per-app SDK connection status
+(whether each app's SDK has called in, with platform / SDK version / last-seen). Used by the
+dashboard's "SDK connected ✅" indicator.
+
+### Insights — `GET /v1/admin/insights`
+Advanced analytics: conversion `funnel`, `trial_conversion`, `ltv` (ARPU/ARPPU), and monthly
+signup `cohorts` (size, paying, revenue/customer, current retention %).
+
+### Interactive API docs (public)
+`GET /openapi.json` (OpenAPI 3.1 spec) and `GET /docs` (Redoc UI). No auth.
+
+---
+
 ## Receipt validation modes
 
 Configured per store via env:
 
 - `trust` (default): accept the client's claim; compute `expires_date` from the
   product's `duration`. For local dev and sandbox testing.
-- `apple`: verify the JWS transaction via Apple App Store Server API
-  (requires `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`).
-- `google`: verify the purchase token via Google Play Developer API
-  (requires `GOOGLE_SERVICE_ACCOUNT_JSON`).
+- `apple`: cryptographically verifies the StoreKit 2 signed transaction (JWS) — ES256
+  signature with the leaf certificate, x5c chain link + validity checks, and (when
+  `APPLE_ROOT_CA_PEM` is set) pinning to Apple's root CA. Extracts the authentic
+  purchase/expiry dates and sandbox flag from the signed payload.
+- `google`: verifies the purchase token via the Google Play Android Publisher API using a
+  service account (`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_PACKAGE_NAME`); handles both
+  `subscriptionsv2` and one-time products.
 
-Validators are a pluggable interface; `apple`/`google` implementations may start
-as scaffolds that fail with `store_problem` if credentials are missing.
+Validators are a pluggable interface (`src/services/validators/`). Store **catalog import**
+from the developer APIs is scaffolded and gated on the same credentials.
