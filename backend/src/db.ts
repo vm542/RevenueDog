@@ -1,0 +1,166 @@
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+
+export type DB = Database.Database;
+
+const SCHEMA_VERSION = 1;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS secret_keys (
+  key TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS apps (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  public_api_key TEXT NOT NULL UNIQUE,
+  bundle_id TEXT,
+  package_name TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
+  store_identifier TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('subscription','non_consumable','consumable')),
+  store TEXT NOT NULL CHECK (store IN ('app_store','play_store')),
+  display_name TEXT NOT NULL,
+  duration TEXT,
+  UNIQUE (store_identifier, store)
+);
+
+CREATE TABLE IF NOT EXISTS entitlements (
+  id TEXT PRIMARY KEY,
+  identifier TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entitlement_products (
+  entitlement_id TEXT NOT NULL REFERENCES entitlements(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  PRIMARY KEY (entitlement_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS offerings (
+  id TEXT PRIMARY KEY,
+  identifier TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  metadata TEXT NOT NULL DEFAULT '{}',
+  is_current INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS packages (
+  id TEXT PRIMARY KEY,
+  offering_id TEXT NOT NULL REFERENCES offerings(id) ON DELETE CASCADE,
+  identifier TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (offering_id, identifier)
+);
+
+CREATE TABLE IF NOT EXISTS package_products (
+  package_id TEXT NOT NULL REFERENCES packages(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  PRIMARY KEY (package_id, product_id)
+);
+
+CREATE TABLE IF NOT EXISTS subscribers (
+  id TEXT PRIMARY KEY,
+  original_app_user_id TEXT NOT NULL,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS aliases (
+  app_user_id TEXT PRIMARY KEY,
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_aliases_subscriber ON aliases(subscriber_id);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  id TEXT PRIMARY KEY,
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+  product_store_identifier TEXT NOT NULL,
+  store TEXT NOT NULL CHECK (store IN ('app_store','play_store','promotional')),
+  purchase_date TEXT NOT NULL,
+  original_purchase_date TEXT NOT NULL,
+  expires_date TEXT,
+  unsubscribe_detected_at TEXT,
+  billing_issues_detected_at TEXT,
+  grace_period_expires_date TEXT,
+  is_sandbox INTEGER NOT NULL DEFAULT 0,
+  period_type TEXT NOT NULL DEFAULT 'normal' CHECK (period_type IN ('normal','trial','intro')),
+  will_renew INTEGER NOT NULL DEFAULT 1,
+  UNIQUE (subscriber_id, product_store_identifier)
+);
+
+CREATE TABLE IF NOT EXISTS non_subscriptions (
+  id TEXT PRIMARY KEY,
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+  product_store_identifier TEXT NOT NULL,
+  store TEXT NOT NULL CHECK (store IN ('app_store','play_store','promotional')),
+  purchase_date TEXT NOT NULL,
+  is_sandbox INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_non_subscriptions_subscriber ON non_subscriptions(subscriber_id);
+
+CREATE TABLE IF NOT EXISTS subscriber_attributes (
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (subscriber_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS experiments (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','running','stopped')),
+  control_offering_id TEXT NOT NULL REFERENCES offerings(id),
+  treatment_offering_id TEXT NOT NULL REFERENCES offerings(id),
+  traffic_pct INTEGER NOT NULL CHECK (traffic_pct BETWEEN 0 AND 100),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS experiment_enrollments (
+  experiment_id TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+  variant TEXT NOT NULL CHECK (variant IN ('control','treatment')),
+  enrolled_at TEXT NOT NULL,
+  PRIMARY KEY (experiment_id, subscriber_id)
+);
+
+CREATE TABLE IF NOT EXISTS receipts (
+  id TEXT PRIMARY KEY,
+  store TEXT NOT NULL,
+  fetch_token TEXT NOT NULL,
+  subscriber_id TEXT NOT NULL REFERENCES subscribers(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL,
+  product_store_identifier TEXT NOT NULL,
+  presented_offering_identifier TEXT,
+  price REAL,
+  currency TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (store, fetch_token)
+);
+CREATE INDEX IF NOT EXISTS idx_receipts_subscriber ON receipts(subscriber_id);
+`;
+
+export function openDb(path: string): DB {
+  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version < SCHEMA_VERSION) {
+    db.exec(SCHEMA);
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  }
+  return db;
+}
