@@ -1,0 +1,43 @@
+# RevenueDog — one-command self-host.
+#
+#   docker compose up --build
+#
+# Then open the dashboard at http://localhost:5173 and connect it to the
+# backend at http://localhost:8787. Get the admin secret key from the logs:
+#
+#   docker compose logs backend | grep "Root secret key"
+#
+# This default stack runs in development mode with trust-mode receipt
+# validation so you can test sandbox purchases locally. For a real
+# deployment see .env.example and the "Production" section of the README:
+# set NODE_ENV=production, real APPLE_VALIDATION/GOOGLE_VALIDATION
+# credentials, and a concrete CORS_ORIGIN (the backend refuses to start in
+# production with trust mode or wildcard CORS).
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 8787
+      HOST: 0.0.0.0
+      DATABASE_PATH: /data/revenuedog.db
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      APPLE_VALIDATION: ${APPLE_VALIDATION:-trust}
+      GOOGLE_VALIDATION: ${GOOGLE_VALIDATION:-trust}
+    ports:
+      - "8787:8787"
+    volumes:
+      - revenuedog-data:/data
+    restart: unless-stopped
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  revenuedog-data:
