@@ -10,6 +10,8 @@ export type Platform = 'ios' | 'android';
 export interface ResolvedPackage {
   identifier: string;
   platform_product_identifier: string;
+  /** Google Play base-plan id; null on App Store. Mirrors RevenueCat's offerings payload. */
+  platform_product_plan_identifier: string | null;
 }
 
 export interface ResolvedOffering {
@@ -42,7 +44,11 @@ function resolveOffering(db: DB, offering: Offering, platform: Platform): Resolv
     const products = pkg.product_ids.map((id) => getProduct(db, id)).filter((p) => p !== undefined);
     const match = products.find((p) => p!.store === store);
     if (!match) continue; // never surface a package with no product for this platform
-    packages.push({ identifier: pkg.identifier, platform_product_identifier: match.store_identifier });
+    packages.push({
+      identifier: pkg.identifier,
+      platform_product_identifier: match.store_identifier,
+      platform_product_plan_identifier: null,
+    });
   }
   return {
     identifier: offering.identifier,

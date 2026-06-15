@@ -26,11 +26,18 @@ const receiptSchema = z.object({
   app_user_id: z.string().min(1),
   fetch_token: z.string().min(1),
   product_id: z.string().min(1),
-  store: z.enum(['app_store', 'play_store']),
+  // RevenueCat's SDK does not send `store` — it's inferred from the platform.
+  // Accept it when present, otherwise derive it from the X-Platform header.
+  store: z.enum(['app_store', 'play_store']).optional(),
   presented_offering_identifier: z.string().nullish(),
   price: z.number().nullish(),
   currency: z.string().nullish(),
 });
+
+/** Maps the X-Platform header to a store, for SDKs (like RevenueCat's) that omit `store`. */
+function storeFromPlatform(req: { headers: Record<string, unknown> }): 'app_store' | 'play_store' {
+  return platformFrom(req) === 'ios' ? 'app_store' : 'play_store';
+}
 
 const aliasSchema = z.object({ new_app_user_id: z.string().min(1) });
 
@@ -57,11 +64,12 @@ export function registerPublicRoutes(app: FastifyInstance, db: DB, validators: V
 
     scoped.post('/v1/receipts', async (req) => {
       const body = parse(receiptSchema, req.body);
+      const store = body.store ?? storeFromPlatform(req);
       return processReceipt(db, validators, {
         appUserId: body.app_user_id,
         fetchToken: body.fetch_token,
         productId: body.product_id,
-        store: body.store,
+        store,
         presentedOfferingIdentifier: body.presented_offering_identifier ?? null,
         price: body.price ?? null,
         currency: body.currency ?? null,

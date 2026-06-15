@@ -174,6 +174,34 @@ describe('api docs', () => {
 describe('RevenueCat compatibility', () => {
   // Locks the CustomerInfo response to RevenueCat's documented schema so the
   // official RevenueCat SDK can decode it unchanged (drop-in via Purchases.proxyURL).
+  it('accepts a receipt without a "store" field, inferring it from X-Platform (RC SDK behaviour)', async () => {
+    await setupCatalog();
+    // RevenueCat's SDK posts no `store`; X-Platform: ios → app_store.
+    const res = await pub('POST', '/v1/receipts', {
+      app_user_id: 'rc-nostore',
+      fetch_token: 'tok-nostore',
+      product_id: 'com.app.pro.monthly',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().subscriber.subscriptions['com.app.pro.monthly'].store).toBe('app_store');
+  });
+
+  it('returns offerings packages with platform_product_identifier (+ plan id) for the SDK', async () => {
+    await setupCatalog();
+    const monthly = (await admin('GET', '/v1/admin/products')).json().items[0];
+    await admin('POST', '/v1/admin/offerings', {
+      identifier: 'default',
+      is_current: true,
+      packages: [{ identifier: '$rc_monthly', product_ids: [monthly.id] }],
+    });
+    const offerings = (await pub('GET', '/v1/subscribers/off-user/offerings')).json();
+    expect(offerings.current_offering_id).toBe('default');
+    const pkg = offerings.offerings[0].packages[0];
+    expect(pkg.identifier).toBe('$rc_monthly');
+    expect(pkg.platform_product_identifier).toBe('com.app.pro.monthly');
+    expect(pkg).toHaveProperty('platform_product_plan_identifier');
+  });
+
   it('returns a RevenueCat-shaped CustomerInfo with all required fields', async () => {
     await setupCatalog();
     await pub('POST', '/v1/receipts', {
