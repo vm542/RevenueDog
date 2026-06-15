@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { DB } from './db.js';
 import { forbidden, unauthorized } from './errors.js';
 import { genKey, nowIso } from './ids.js';
+import { insertSecretKeyHash, resolveSecretKey } from './repo/accounts.js';
 import { getAppByPublicKey, type AppRow } from './repo/apps.js';
 import { recordSdkPing } from './repo/diagnostics.js';
 import { getDefaultProjectId } from './repo/projects.js';
@@ -30,8 +31,9 @@ export function requirePublicKey(db: DB) {
   return async (req: FastifyRequest): Promise<void> => {
     const key = bearerKey(req);
     if (key.startsWith('sk_')) {
-      const known = db.prepare('SELECT key FROM secret_keys WHERE key = ?').get(key);
-      if (known) throw forbidden('Secret keys cannot be used on public endpoints; use the app public key.');
+      if (resolveSecretKey(db, key)) {
+        throw forbidden('Secret keys cannot be used on public endpoints; use the app public key.');
+      }
       throw unauthorized('Unknown API key.');
     }
     const app = getAppByPublicKey(db, key);
@@ -55,9 +57,7 @@ export function requireSecretKey(db: DB) {
       if (known) throw forbidden('Public keys cannot be used on admin endpoints; use a secret key.');
       throw unauthorized('Unknown API key.');
     }
-    const known = db.prepare('SELECT project_id FROM secret_keys WHERE key = ?').get(key) as
-      | { project_id: string | null }
-      | undefined;
+    const known = resolveSecretKey(db, key);
     if (!known) throw unauthorized('Unknown API key.');
     req.projectId = known.project_id ?? getDefaultProjectId(db);
   };
@@ -72,12 +72,10 @@ export function ensureRootSecretKey(db: DB): string {
   const key = genKey('sk');
   const projectId = getDefaultProjectId(db);
   db.transaction(() => {
+    // The bootstrap root key is kept in meta so it can be re-printed at boot for
+    // self-host convenience; secret_keys stores only its hash (used for auth lookup).
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('root_secret_key', key);
-    db.prepare('INSERT INTO secret_keys (key, project_id, created_at) VALUES (?, ?, ?)').run(
-      key,
-      projectId,
-      nowIso(),
-    );
+    insertSecretKeyHash(db, key, projectId);
   })();
   return key;
 }

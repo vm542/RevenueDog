@@ -186,14 +186,10 @@ describe('multi-tenancy isolation', () => {
 
     // Project B = a second project with its own secret key, created directly in the DB.
     const { createOrganization, createProject } = await import('../src/repo/projects.js');
+    const { createSecretKey } = await import('../src/repo/accounts.js');
     const org = createOrganization(db, 'Org B');
     const projB = createProject(db, org.id, 'Project B');
-    const skB = 'sk_projectB';
-    db.prepare('INSERT INTO secret_keys (key, project_id, created_at) VALUES (?, ?, ?)').run(
-      skB,
-      projB.id,
-      new Date().toISOString(),
-    );
+    const skB = createSecretKey(db, projB.id).plaintext;
     const adminB = (method: 'POST' | 'GET', url: string, payload?: unknown) =>
       app.inject({ method, url, headers: { authorization: `Bearer ${skB}` }, payload: payload as object });
 

@@ -1,5 +1,6 @@
 import type { DB } from './db.js';
 import { genId, genKey, nowIso } from './ids.js';
+import { hashApiKey, keyPrefix } from './keys.js';
 
 /** The id of the auto-provisioned tenant, stored in `meta` so app code can resolve it. */
 export const DEFAULT_PROJECT_META_KEY = 'default_project_id';
@@ -216,6 +217,58 @@ export const MIGRATIONS: Migration[] = [
           expires_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+      `);
+    },
+  },
+  {
+    // Security: stop storing secret keys in plaintext. Rebuild secret_keys to hold only
+    // a SHA-256 hash + a short display prefix; the full key is shown once at creation.
+    // Existing plaintext keys are hashed in place (no key changes, no re-issue needed).
+    version: 6,
+    up: (db) => {
+      const existing = db.prepare('SELECT key, project_id, created_at FROM secret_keys').all() as {
+        key: string;
+        project_id: string | null;
+        created_at: string;
+      }[];
+      db.exec(`
+        ALTER TABLE secret_keys RENAME TO secret_keys_old;
+        CREATE TABLE secret_keys (
+          id TEXT PRIMARY KEY,
+          key_hash TEXT NOT NULL UNIQUE,
+          key_prefix TEXT NOT NULL,
+          project_id TEXT,
+          created_at TEXT NOT NULL,
+          last_used_at TEXT
+        );
+      `);
+      const insert = db.prepare(
+        `INSERT INTO secret_keys (id, key_hash, key_prefix, project_id, created_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, NULL)`,
+      );
+      for (const row of existing) {
+        insert.run(genId('key'), hashApiKey(row.key), keyPrefix(row.key), row.project_id, row.created_at);
+      }
+      db.exec('DROP TABLE secret_keys_old');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_secret_keys_project ON secret_keys(project_id)');
+    },
+  },
+  {
+    // Security: audit log for sensitive actions (auth + API-key lifecycle).
+    version: 7,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS audit_log (
+          id TEXT PRIMARY KEY,
+          project_id TEXT,
+          actor TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target TEXT,
+          ip TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_project ON audit_log(project_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
       `);
     },
   },

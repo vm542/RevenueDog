@@ -415,6 +415,13 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       return { items: listEvents(db, req.projectId!, Math.min(Number(q.limit ?? 50), 200)) };
     });
 
+    // --- Audit log ---
+    scoped.get('/v1/admin/audit', async (req) => {
+      const q = req.query as { limit?: string };
+      const { listAudit } = await import('../repo/audit.js');
+      return { items: listAudit(db, req.projectId!, Math.min(Number(q.limit ?? 100), 500)) };
+    });
+
     // --- SDK diagnostics ---
     scoped.get('/v1/admin/diagnostics', async (req) =>
       buildDiagnostics(db, req.projectId!, { app_store: config.appleValidation, play_store: config.googleValidation }),

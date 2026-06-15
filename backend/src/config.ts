@@ -10,6 +10,8 @@ export interface Config {
   googleValidation: 'trust' | 'google';
   /** CORS allow-list for the dashboard. '*' in dev. */
   corsOrigin: string;
+  /** Max requests per IP per minute; 0 disables rate limiting. */
+  rateLimitPerMin: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -23,6 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     appleValidation: env.APPLE_VALIDATION === 'apple' ? 'apple' : 'trust',
     googleValidation: env.GOOGLE_VALIDATION === 'google' ? 'google' : 'trust',
     corsOrigin: env.CORS_ORIGIN ?? '*',
+    rateLimitPerMin: env.RATE_LIMIT_PER_MIN !== undefined ? Number(env.RATE_LIMIT_PER_MIN) : 600,
   };
 }
 

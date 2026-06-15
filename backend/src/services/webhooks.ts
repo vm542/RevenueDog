@@ -57,9 +57,9 @@ async function deliver(
       body,
       signal: AbortSignal.timeout(10_000),
     });
-    recordDelivery(db, { webhookId, eventId, eventType, statusCode: res.status, ok: res.ok });
+    safeRecordDelivery(db, { webhookId, eventId, eventType, statusCode: res.status, ok: res.ok });
   } catch (err) {
-    recordDelivery(db, {
+    safeRecordDelivery(db, {
       webhookId,
       eventId,
       eventType,
@@ -67,6 +67,16 @@ async function deliver(
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+/** Recording delivery is best-effort: this runs after the response, so a closed DB
+ *  (e.g. during shutdown/tests) must not surface as an unhandled rejection. */
+function safeRecordDelivery(db: DB, input: Parameters<typeof recordDelivery>[1]): void {
+  try {
+    recordDelivery(db, input);
+  } catch {
+    // ignore — the request has already been delivered (or failed to deliver)
   }
 }
 

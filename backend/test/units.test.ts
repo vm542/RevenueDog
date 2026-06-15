@@ -3,7 +3,37 @@ import { describe, expect, it } from 'vitest';
 import { assertProductionSafe, loadConfig } from '../src/config.js';
 import { openDb, SCHEMA } from '../src/db.js';
 import { addDuration, isValidDuration } from '../src/duration.js';
+import { hashApiKey, keyPrefix } from '../src/keys.js';
 import { LATEST_SCHEMA_VERSION, runMigrations } from '../src/migrations.js';
+import { RateLimiter } from '../src/ratelimit.js';
+
+describe('api key hashing', () => {
+  it('hashes deterministically and exposes only a non-secret prefix', () => {
+    const key = 'sk_0123456789abcdef';
+    expect(hashApiKey(key)).toBe(hashApiKey(key));
+    expect(hashApiKey(key)).toHaveLength(64); // sha256 hex
+    expect(hashApiKey(key)).not.toContain(key);
+    expect(keyPrefix(key)).toBe('sk_01234567');
+  });
+});
+
+describe('rate limiter', () => {
+  it('allows up to the limit per window, then blocks, then resets', () => {
+    const rl = new RateLimiter(3, 1000);
+    const t0 = 1_000_000;
+    expect(rl.check('ip', t0)).toBe(true);
+    expect(rl.check('ip', t0)).toBe(true);
+    expect(rl.check('ip', t0)).toBe(true);
+    expect(rl.check('ip', t0)).toBe(false); // 4th in window
+    expect(rl.check('other', t0)).toBe(true); // separate key unaffected
+    expect(rl.check('ip', t0 + 1001)).toBe(true); // window elapsed
+  });
+
+  it('a limit of 0 disables limiting', () => {
+    const rl = new RateLimiter(0);
+    for (let i = 0; i < 1000; i++) expect(rl.check('ip')).toBe(true);
+  });
+});
 
 describe('migrations', () => {
   it('upgrades a v2 database: platform keys, default tenant, and data adoption', () => {

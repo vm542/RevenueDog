@@ -21,6 +21,7 @@ import {
   getProjectForOrg,
   listProjectsByOrg,
 } from '../repo/projects.js';
+import { recordAudit } from '../repo/audit.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -46,12 +47,6 @@ function bearer(req: FastifyRequest): string {
   return token;
 }
 
-/** Mask a secret key for display: keep the prefix and last 4 chars. */
-function maskKey(key: string): string {
-  const [prefix, body = ''] = key.split('_');
-  return `${prefix}_${'•'.repeat(Math.max(0, body.length - 4))}${body.slice(-4)}`;
-}
-
 export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
   // --- Public: signup / login ---
   app.post('/v1/auth/signup', async (req, reply) => {
@@ -64,6 +59,12 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
       const session = createSession(db, user.id);
       return { org, user, project, secret, session };
     })();
+    recordAudit(db, {
+      projectId: result.project.id,
+      actor: result.user.email,
+      action: 'auth.signup',
+      ip: req.ip,
+    });
     reply.code(201);
     return {
       token: result.session.token,
@@ -71,7 +72,7 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
       organization: { id: result.org.id, name: result.org.name },
       project: { id: result.project.id, name: result.project.name },
       // The full secret key is shown exactly once, at creation.
-      secret_key: result.secret.key,
+      secret_key: result.secret.plaintext,
     };
   });
 
@@ -82,6 +83,7 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
       throw unauthorized('Invalid email or password.');
     }
     const session = createSession(db, user.id);
+    recordAudit(db, { actor: user.email, action: 'auth.login', ip: req.ip });
     return { token: session.token, user: { id: user.id, email: user.email, org_id: user.org_id } };
   });
 
@@ -122,7 +124,7 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
         id: result.project.id,
         name: result.project.name,
         created_at: result.project.created_at,
-        secret_key: result.secret.key,
+        secret_key: result.secret.plaintext,
       };
     });
 
@@ -133,8 +135,10 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
       if (!project) throw notFound('No project with that id.');
       return {
         items: listSecretKeys(db, project.id).map((k) => ({
-          key_masked: maskKey(k.key),
+          id: k.id,
+          key_prefix: k.key_prefix,
           created_at: k.created_at,
+          last_used_at: k.last_used_at,
         })),
       };
     });
@@ -144,16 +148,30 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
       const project = getProjectForOrg(db, req.user!.org_id, id);
       if (!project) throw notFound('No project with that id.');
       const secret = createSecretKey(db, project.id);
+      recordAudit(db, {
+        projectId: project.id,
+        actor: req.user!.email,
+        action: 'key.create',
+        target: secret.row.id,
+        ip: req.ip,
+      });
       reply.code(201);
-      // Full key returned once, at creation.
-      return { secret_key: secret.key, created_at: secret.created_at };
+      // Full key returned once, at creation; thereafter only the prefix is retrievable.
+      return { id: secret.row.id, secret_key: secret.plaintext, key_prefix: secret.row.key_prefix, created_at: secret.row.created_at };
     });
 
-    scoped.delete('/v1/projects/:id/keys/:key', async (req) => {
-      const { id, key } = req.params as { id: string; key: string };
+    scoped.delete('/v1/projects/:id/keys/:keyId', async (req) => {
+      const { id, keyId } = req.params as { id: string; keyId: string };
       const project = getProjectForOrg(db, req.user!.org_id, id);
       if (!project) throw notFound('No project with that id.');
-      if (!deleteSecretKey(db, project.id, key)) throw notFound('No such key on this project.');
+      if (!deleteSecretKey(db, project.id, keyId)) throw notFound('No such key on this project.');
+      recordAudit(db, {
+        projectId: project.id,
+        actor: req.user!.email,
+        action: 'key.delete',
+        target: keyId,
+        ip: req.ip,
+      });
       return { ok: true };
     });
   });
