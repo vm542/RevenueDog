@@ -174,6 +174,21 @@ describe('api docs', () => {
 describe('RevenueCat compatibility', () => {
   // Locks the CustomerInfo response to RevenueCat's documented schema so the
   // official RevenueCat SDK can decode it unchanged (drop-in via Purchases.proxyURL).
+  it('issues RevenueCat-style platform keys that authenticate public endpoints', async () => {
+    const created = (await admin('POST', '/v1/admin/apps', { name: 'RC App' })).json();
+    expect(created.apple_api_key).toMatch(/^appl_/);
+    expect(created.google_api_key).toMatch(/^goog_/);
+
+    // The RevenueCat SDK would send the appl_ key on iOS — it must authenticate.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/subscribers/rc-keyed-user',
+      headers: { authorization: `Bearer ${created.apple_api_key}`, 'x-platform': 'ios' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().subscriber.original_app_user_id).toBe('rc-keyed-user');
+  });
+
   it('accepts a receipt without a "store" field, inferring it from X-Platform (RC SDK behaviour)', async () => {
     await setupCatalog();
     // RevenueCat's SDK posts no `store`; X-Platform: ios → app_store.

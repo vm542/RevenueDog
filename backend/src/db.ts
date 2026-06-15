@@ -1,10 +1,12 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations.js';
 
 export type DB = Database.Database;
 
-const SCHEMA_VERSION = 2;
+/** Version at which the base SCHEMA below is complete; later changes live in migrations.ts. */
+const BASE_SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -210,9 +212,15 @@ export function openDb(path: string): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   const version = db.pragma('user_version', { simple: true }) as number;
-  if (version < SCHEMA_VERSION) {
+  // Base tables (idempotent CREATE IF NOT EXISTS), then forward-only ALTER migrations.
+  if (version < BASE_SCHEMA_VERSION) {
     db.exec(SCHEMA);
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    db.pragma(`user_version = ${BASE_SCHEMA_VERSION}`);
+  }
+  const current = db.pragma('user_version', { simple: true }) as number;
+  if (current < LATEST_SCHEMA_VERSION) {
+    runMigrations(db, current);
+    db.pragma(`user_version = ${LATEST_SCHEMA_VERSION}`);
   }
   return db;
 }

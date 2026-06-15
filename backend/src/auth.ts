@@ -2,7 +2,7 @@ import type { FastifyRequest } from 'fastify';
 import type { DB } from './db.js';
 import { forbidden, unauthorized } from './errors.js';
 import { genKey, nowIso } from './ids.js';
-import type { AppRow } from './repo/apps.js';
+import { getAppByPublicKey, type AppRow } from './repo/apps.js';
 import { recordSdkPing } from './repo/diagnostics.js';
 
 declare module 'fastify' {
@@ -31,7 +31,7 @@ export function requirePublicKey(db: DB) {
       if (known) throw forbidden('Secret keys cannot be used on public endpoints; use the app public key.');
       throw unauthorized('Unknown API key.');
     }
-    const app = db.prepare('SELECT * FROM apps WHERE public_api_key = ?').get(key) as AppRow | undefined;
+    const app = getAppByPublicKey(db, key);
     if (!app) throw unauthorized('Unknown API key.');
     req.app = app;
     try {
