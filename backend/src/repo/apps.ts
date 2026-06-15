@@ -64,3 +64,12 @@ export function getAppByPublicKey(db: DB, key: string): AppRow | undefined {
 export function deleteApp(db: DB, projectId: string, id: string): boolean {
   return db.prepare('DELETE FROM apps WHERE id = ? AND project_id = ?').run(id, projectId).changes > 0;
 }
+
+/** Resolves the app (and thus the tenant) a store server notification belongs to. */
+export function getAppByBundleId(db: DB, bundleId: string): AppRow | undefined {
+  return db.prepare('SELECT * FROM apps WHERE bundle_id = ? LIMIT 1').get(bundleId) as AppRow | undefined;
+}
+
+export function getAppByPackageName(db: DB, packageName: string): AppRow | undefined {
+  return db.prepare('SELECT * FROM apps WHERE package_name = ? LIMIT 1').get(packageName) as AppRow | undefined;
+}

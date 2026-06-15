@@ -6,6 +6,7 @@ import type { Config } from './config.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 import { registerAccountRoutes } from './routes/accounts.js';
+import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerPublicRoutes } from './routes/public.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { buildValidators } from './services/validators.js';
@@ -63,6 +64,7 @@ export function buildApp({ db, config, logger = false }: BuildAppOptions): Fasti
   });
 
   registerAccountRoutes(app, db);
+  registerNotificationRoutes(app, db, config);
   registerPublicRoutes(app, db, validators);
   registerAdminRoutes(app, db, validators, config);
 

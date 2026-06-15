@@ -247,6 +247,58 @@ export function upsertSubscription(db: DB, input: UpsertSubscriptionInput): Subs
   return row;
 }
 
+export interface SubscriptionFieldUpdate {
+  expiresDate?: string | null;
+  willRenew?: boolean;
+  billingIssuesDetectedAt?: string | null;
+  unsubscribeDetectedAt?: string | null;
+  gracePeriodExpiresDate?: string | null;
+}
+
+/**
+ * Applies a partial lifecycle update to an existing subscription (only the provided
+ * fields change). Used by store server notifications to reconcile renewals, billing
+ * issues, cancellations, grace periods, and expirations independently of the client.
+ * Returns false when no matching subscription exists.
+ */
+export function updateSubscriptionFields(
+  db: DB,
+  subscriberId: string,
+  productStoreIdentifier: string,
+  patch: SubscriptionFieldUpdate,
+): boolean {
+  const existing = db
+    .prepare('SELECT * FROM subscriptions WHERE subscriber_id = ? AND product_store_identifier = ?')
+    .get(subscriberId, productStoreIdentifier) as SubscriptionRow | undefined;
+  if (!existing) return false;
+  const next: SubscriptionRow = {
+    ...existing,
+    expires_date: patch.expiresDate !== undefined ? patch.expiresDate : existing.expires_date,
+    will_renew:
+      patch.willRenew !== undefined ? (patch.willRenew ? 1 : 0) : existing.will_renew,
+    billing_issues_detected_at:
+      patch.billingIssuesDetectedAt !== undefined
+        ? patch.billingIssuesDetectedAt
+        : existing.billing_issues_detected_at,
+    unsubscribe_detected_at:
+      patch.unsubscribeDetectedAt !== undefined
+        ? patch.unsubscribeDetectedAt
+        : existing.unsubscribe_detected_at,
+    grace_period_expires_date:
+      patch.gracePeriodExpiresDate !== undefined
+        ? patch.gracePeriodExpiresDate
+        : existing.grace_period_expires_date,
+  };
+  db.prepare(
+    `UPDATE subscriptions SET expires_date=@expires_date, will_renew=@will_renew,
+       billing_issues_detected_at=@billing_issues_detected_at,
+       unsubscribe_detected_at=@unsubscribe_detected_at,
+       grace_period_expires_date=@grace_period_expires_date
+     WHERE id=@id`,
+  ).run(next);
+  return true;
+}
+
 export function insertNonSubscription(
   db: DB,
   input: { projectId: string; subscriberId: string; productStoreIdentifier: string; store: SubStore; purchaseDate: string; isSandbox?: boolean },
