@@ -1,11 +1,12 @@
 import { buildApp } from './app.js';
 import { ensureRootSecretKey } from './auth.js';
-import { loadConfig } from './config.js';
+import { assertProductionSafe, loadConfig } from './config.js';
 import { openDb } from './db.js';
 import { checkExpirations } from './services/webhooks.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  assertProductionSafe(config);
   const db = openDb(config.dbPath);
   const rootKey = ensureRootSecretKey(db);
 

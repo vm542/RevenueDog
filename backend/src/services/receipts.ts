@@ -1,6 +1,6 @@
 import type { DB } from '../db.js';
 import { addDuration } from '../duration.js';
-import { receiptValidationFailed } from '../errors.js';
+import { conflict, receiptValidationFailed } from '../errors.js';
 import { nowIso } from '../ids.js';
 import { getProductByStoreId, getProductByStoreIdAny, type ProductStore } from '../repo/products.js';
 import { findReceipt, recordReceipt } from '../repo/receipts.js';
@@ -32,9 +32,16 @@ export async function processReceipt(
 ): Promise<CustomerInfo> {
   const { subscriber } = getOrCreateSubscriber(db, input.appUserId);
 
-  // Idempotency: a previously processed (store, token) just returns current state.
+  // Idempotency vs. theft: a store transaction belongs to exactly one subscriber.
+  // Re-submitting the same (store, token) by its owner is a safe no-op; submitting
+  // another user's token must be rejected, or a forged app_user_id could hijack a purchase.
   const dup = findReceipt(db, input.store, input.fetchToken);
-  if (dup) return buildCustomerInfo(db, subscriber);
+  if (dup) {
+    if (dup.subscriber_id !== subscriber.id) {
+      throw conflict('This purchase token has already been registered to a different user.');
+    }
+    return buildCustomerInfo(db, subscriber);
+  }
 
   const productStore: ProductStore = input.store;
   const product =

@@ -170,3 +170,113 @@ describe('api docs', () => {
     expect(res.headers['content-type']).toContain('text/html');
   });
 });
+
+describe('RevenueCat compatibility', () => {
+  // Locks the CustomerInfo response to RevenueCat's documented schema so the
+  // official RevenueCat SDK can decode it unchanged (drop-in via Purchases.proxyURL).
+  it('returns a RevenueCat-shaped CustomerInfo with all required fields', async () => {
+    await setupCatalog();
+    await pub('POST', '/v1/receipts', {
+      app_user_id: 'rc-user',
+      fetch_token: 'tok-rc',
+      product_id: 'com.app.pro.monthly',
+      store: 'app_store',
+      price: 9.99,
+      currency: 'USD',
+    });
+    const info = (await pub('GET', '/v1/subscribers/rc-user')).json();
+
+    // Top level
+    expect(typeof info.request_date).toBe('string');
+    expect(typeof info.request_date_ms).toBe('number');
+
+    const s = info.subscriber;
+    for (const k of [
+      'original_app_user_id',
+      'original_application_version',
+      'original_purchase_date',
+      'first_seen',
+      'last_seen',
+      'management_url',
+      'entitlements',
+      'subscriptions',
+      'non_subscriptions',
+      'other_purchases',
+      'subscriber_attributes',
+    ]) {
+      expect(s, `subscriber.${k} present`).toHaveProperty(k);
+    }
+
+    // Subscription object shape
+    const sub = s.subscriptions['com.app.pro.monthly'];
+    expect(sub).toBeDefined();
+    for (const k of [
+      'purchase_date',
+      'original_purchase_date',
+      'expires_date',
+      'store',
+      'unsubscribe_detected_at',
+      'billing_issues_detected_at',
+      'grace_period_expires_date',
+      'is_sandbox',
+      'ownership_type',
+      'period_type',
+      'refunded_at',
+      'auto_resume_date',
+      'store_transaction_id',
+      'product_plan_identifier',
+      'price',
+      'will_renew',
+    ]) {
+      expect(sub, `subscription.${k} present`).toHaveProperty(k);
+    }
+    expect(sub.ownership_type).toBe('PURCHASED');
+    expect(sub.price).toEqual({ amount: 9.99, currency: 'USD' });
+    expect(sub.store).toBe('app_store');
+
+    // Entitlement object shape
+    const ent = s.entitlements.pro;
+    expect(ent).toBeDefined();
+    for (const k of ['expires_date', 'purchase_date', 'product_identifier', 'grace_period_expires_date']) {
+      expect(ent, `entitlement.${k} present`).toHaveProperty(k);
+    }
+  });
+});
+
+describe('receipt ownership', () => {
+  it('re-submitting the same token by its owner is an idempotent no-op', async () => {
+    await setupCatalog();
+    const body = {
+      app_user_id: 'owner-user',
+      fetch_token: 'tok-shared',
+      product_id: 'com.app.pro.monthly',
+      store: 'app_store',
+    };
+    const first = await pub('POST', '/v1/receipts', body);
+    expect(first.statusCode).toBe(200);
+    const second = await pub('POST', '/v1/receipts', body);
+    expect(second.statusCode).toBe(200);
+    expect(Object.keys(second.json().subscriber.entitlements)).toContain('pro');
+  });
+
+  it('rejects a token already registered to another user (no purchase hijack)', async () => {
+    await setupCatalog();
+    await pub('POST', '/v1/receipts', {
+      app_user_id: 'owner-user',
+      fetch_token: 'tok-stolen',
+      product_id: 'com.app.pro.monthly',
+      store: 'app_store',
+    });
+    const attacker = await pub('POST', '/v1/receipts', {
+      app_user_id: 'attacker-user',
+      fetch_token: 'tok-stolen',
+      product_id: 'com.app.pro.monthly',
+      store: 'app_store',
+    });
+    expect(attacker.statusCode).toBe(409);
+    expect(attacker.json().error.code).toBe('conflict');
+    // Attacker gained nothing.
+    const attackerInfo = (await pub('GET', '/v1/subscribers/attacker-user')).json();
+    expect(Object.keys(attackerInfo.subscriber.entitlements)).not.toContain('pro');
+  });
+});

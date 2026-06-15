@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
+import { assertProductionSafe, loadConfig } from '../src/config.js';
 import { addDuration, isValidDuration } from '../src/duration.js';
+
+describe('production safety guard', () => {
+  const prod = (over: NodeJS.ProcessEnv) =>
+    loadConfig({ NODE_ENV: 'production', CORS_ORIGIN: 'https://dash.example.com', ...over } as NodeJS.ProcessEnv);
+
+  it('refuses to boot in production with trust-mode validation', () => {
+    expect(() => assertProductionSafe(prod({}))).toThrow(/trust-mode/i);
+  });
+
+  it('refuses to boot in production with wildcard CORS', () => {
+    expect(() =>
+      assertProductionSafe(prod({ APPLE_VALIDATION: 'apple', GOOGLE_VALIDATION: 'google', CORS_ORIGIN: '*' })),
+    ).toThrow(/CORS/i);
+  });
+
+  it('allows a properly configured production server', () => {
+    expect(() =>
+      assertProductionSafe(prod({ APPLE_VALIDATION: 'apple', GOOGLE_VALIDATION: 'google' })),
+    ).not.toThrow();
+  });
+
+  it('never blocks non-production environments', () => {
+    expect(() => assertProductionSafe(loadConfig({} as NodeJS.ProcessEnv))).not.toThrow();
+  });
+});
 
 describe('duration', () => {
   it('validates ISO-8601 durations', () => {
