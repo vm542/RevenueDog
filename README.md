@@ -18,9 +18,15 @@ entitlements, offerings/paywalls, and A/B experiments. Own your data. Pay nothin
 
 ## Why RevenueDog?
 
-RevenueCat is great — but it's a paid SaaS that takes a cut of your revenue and holds your
-customer data. **RevenueDog gives you the same core workflow, self-hosted and free:**
+RevenueCat is great — but it's a SaaS with a monthly-tracked-revenue platform fee, and it
+holds your customer data. **RevenueDog gives you the same core workflow, self-hosted, with
+no per-revenue fee and your data on your own box:**
 
+- 🔁 **Drop-in RevenueCat compatibility** — the API mirrors RevenueCat's `/v1` contract
+  (CustomerInfo, offerings, receipts) and issues `appl_`/`goog_` platform keys, so an
+  existing app can point the official RevenueCat SDK at RevenueDog via `Purchases.proxyURL`.
+  See [Migrating from RevenueCat](docs/MIGRATING_FROM_REVENUECAT.md). *(Parity is verified by
+  a golden-schema test; end-to-end verification against the live RC SDK is in progress.)*
 - 🧾 **Cross-platform purchases** — one SDK surface for StoreKit 2 (iOS) and Google Play Billing (Android).
 - 🔑 **Entitlements** — map products to access levels; check `customerInfo.entitlements["pro"].isActive`.
 - 🏷️ **Offerings & paywalls** — configure packages remotely, no app release required.
@@ -31,22 +37,41 @@ customer data. **RevenueDog gives you the same core workflow, self-hosted and fr
 - 📖 **Interactive API docs** — OpenAPI 3.1 spec served at `/docs`.
 - 🗄️ **Your data** — SQLite by default; everything runs on your own box.
 
-> ⚠️ **Alpha.** The backend, dashboard, and SDK scaffolding are functional and tested.
-> Apple/Google server-side receipt verification ships as a pluggable interface with
-> trust-mode for development. See the [roadmap](#roadmap).
+> ⚠️ **Alpha — do not trust it for real production payments yet without auditing receipt
+> verification.** The backend and dashboard are functional and tested; Apple/Google
+> server-side verification is implemented but still being hardened for production. The
+> native SDKs are in progress. By default the server runs in **trust mode** (it believes
+> the client) — fine for local/sandbox testing, but it refuses to boot with `NODE_ENV=production`
+> unless real store validation is configured. See the [roadmap](#roadmap).
 
 ## What's in the box
 
 | Component | Stack | Status |
 |---|---|---|
-| **Backend API** | Node 20+, TypeScript, Fastify, better-sqlite3, Zod | ✅ Working, 14 tests passing |
+| **Backend API** | Node 20+, TypeScript, Fastify, better-sqlite3, Zod | ✅ Working, 33 tests passing |
 | **Dashboard** | React 19, Vite, Tailwind v4, Recharts | ✅ Working |
+| **RevenueCat API compatibility** | `/v1` contract + `appl_`/`goog_` keys | 🟡 Schema-parity tested; live-SDK verification pending |
+| **Apple/Google receipt verification** | StoreKit 2 JWS, Play Developer API | 🟡 Implemented, hardening for production |
 | **iOS SDK** | Swift Package, StoreKit 2 | 🚧 In progress |
 | **Android SDK** | Kotlin, Play Billing 7 | 🚧 In progress |
 | **API contract** | [`docs/API.md`](docs/API.md) | ✅ Source of truth |
 | **SDK surface** | [`docs/SDK_SURFACE.md`](docs/SDK_SURFACE.md) | ✅ Source of truth |
 
-## Quick start (60 seconds)
+## Quick start
+
+### Option A — Docker (one command)
+
+You need **Docker**.
+
+```bash
+docker compose up --build      # backend → :8787, dashboard → :5173
+docker compose logs backend | grep "Root secret key"   # grab the admin sk_ key
+```
+
+Open `http://localhost:5173`, connect to `http://localhost:8787` with the secret key, and
+you're in. Data persists on the `revenuedog-data` volume.
+
+### Option B — Node (for development)
 
 You need **Node 20+**.
 
@@ -65,6 +90,13 @@ npm run dev           # open http://localhost:5173
 
 Open the dashboard, paste `http://localhost:8787` and the **secret key** the seed printed,
 and you'll land on a populated analytics overview with ~220 demo subscribers.
+
+### Going to production
+
+The backend **refuses to start** with `NODE_ENV=production` while receipt validation is in
+trust mode or CORS is `*` — this stops you from accidentally shipping a server that accepts
+forged purchases. Configure real `APPLE_VALIDATION`/`GOOGLE_VALIDATION` credentials and a
+concrete `CORS_ORIGIN` (see [`.env.example`](.env.example)).
 
 <div align="center">
 <em>Overview → Customers → Products → Entitlements → Offerings → Experiments → Apps &amp; Keys</em>
@@ -113,11 +145,16 @@ See each folder's `README.md` for details.
 - [x] OpenAPI 3.1 spec + interactive `/docs` (Redoc)
 - [x] Product catalog import (CSV / bulk JSON; store-API import scaffolded)
 - [x] Webhooks (initial purchase, renewal, trial, expiration, billing issue…) with HMAC signing + delivery log
-- [x] Real Apple App Store JWS verification (ES256 + x5c chain, optional root pinning)
-- [x] Real Google Play Developer API verification (service-account OAuth)
-- [x] iOS & Android SDKs (purchase + restore + caching)
+- [x] RevenueCat-shaped API + `appl_`/`goog_` platform keys (drop-in compatibility, schema-parity tested)
+- [x] Production safety guard (refuses to boot in prod with trust-mode validation / wildcard CORS)
+- [x] Docker Compose one-command deploy + CI (tests, builds, image builds)
+- [~] Apple App Store JWS verification (ES256 + x5c chain) — implemented, hardening for production
+- [~] Google Play Developer API verification (service-account OAuth) — implemented, hardening for production
+- [ ] iOS & Android SDKs (purchase + restore + caching) — in progress
+- [ ] End-to-end verification against the live RevenueCat SDK via `proxyURL`
+- [ ] App Store Server Notifications V2 + Google RTDN (server-driven renewals/refunds)
+- [ ] Multi-tenancy (orgs/projects) + hosted version with self-serve accounts
 - [ ] Postgres adapter for scale
-- [ ] Docker Compose one-command deploy
 - [ ] Visual paywall builder / templates
 - [ ] Dashboard multi-user auth; sandbox vs production separation
 - [ ] More SDKs (Flutter, React Native, Web, Unity)
