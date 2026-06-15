@@ -23,9 +23,9 @@ export interface CreateExperimentInput {
   traffic_pct: number;
 }
 
-export function createExperiment(db: DB, input: CreateExperimentInput): ExperimentRow {
+export function createExperiment(db: DB, projectId: string, input: CreateExperimentInput): ExperimentRow {
   for (const offId of [input.control_offering_id, input.treatment_offering_id]) {
-    if (!db.prepare('SELECT id FROM offerings WHERE id = ?').get(offId)) {
+    if (!db.prepare('SELECT id FROM offerings WHERE id = ? AND project_id = ?').get(offId, projectId)) {
       throw notFound(`No offering with id "${offId}".`);
     }
   }
@@ -39,28 +39,37 @@ export function createExperiment(db: DB, input: CreateExperimentInput): Experime
     created_at: nowIso(),
   };
   db.prepare(
-    `INSERT INTO experiments (id, name, status, control_offering_id, treatment_offering_id, traffic_pct, created_at)
-     VALUES (@id, @name, @status, @control_offering_id, @treatment_offering_id, @traffic_pct, @created_at)`,
-  ).run(row);
+    `INSERT INTO experiments (id, project_id, name, status, control_offering_id, treatment_offering_id, traffic_pct, created_at)
+     VALUES (@id, @project_id, @name, @status, @control_offering_id, @treatment_offering_id, @traffic_pct, @created_at)`,
+  ).run({ ...row, project_id: projectId });
   return row;
 }
 
-export function listExperiments(db: DB): ExperimentRow[] {
-  return db.prepare('SELECT * FROM experiments ORDER BY created_at DESC').all() as ExperimentRow[];
+export function listExperiments(db: DB, projectId: string): ExperimentRow[] {
+  return db
+    .prepare('SELECT * FROM experiments WHERE project_id = ? ORDER BY created_at DESC')
+    .all(projectId) as ExperimentRow[];
 }
 
-export function getExperiment(db: DB, id: string): ExperimentRow | undefined {
-  return db.prepare('SELECT * FROM experiments WHERE id = ?').get(id) as ExperimentRow | undefined;
-}
-
-export function getRunningExperiment(db: DB): ExperimentRow | undefined {
-  return db.prepare("SELECT * FROM experiments WHERE status = 'running' ORDER BY created_at ASC LIMIT 1").get() as
+export function getExperiment(db: DB, projectId: string, id: string): ExperimentRow | undefined {
+  return db.prepare('SELECT * FROM experiments WHERE id = ? AND project_id = ?').get(id, projectId) as
     | ExperimentRow
     | undefined;
 }
 
-export function updateExperiment(db: DB, id: string, patch: Partial<CreateExperimentInput>): ExperimentRow {
-  const existing = getExperiment(db, id);
+export function getRunningExperiment(db: DB, projectId: string): ExperimentRow | undefined {
+  return db
+    .prepare("SELECT * FROM experiments WHERE project_id = ? AND status = 'running' ORDER BY created_at ASC LIMIT 1")
+    .get(projectId) as ExperimentRow | undefined;
+}
+
+export function updateExperiment(
+  db: DB,
+  projectId: string,
+  id: string,
+  patch: Partial<CreateExperimentInput>,
+): ExperimentRow {
+  const existing = getExperiment(db, projectId, id);
   if (!existing) throw notFound('No experiment with that id.');
   const next: ExperimentRow = {
     ...existing,
@@ -77,15 +86,15 @@ export function updateExperiment(db: DB, id: string, patch: Partial<CreateExperi
   return next;
 }
 
-export function stopExperiment(db: DB, id: string): ExperimentRow {
-  const existing = getExperiment(db, id);
+export function stopExperiment(db: DB, projectId: string, id: string): ExperimentRow {
+  const existing = getExperiment(db, projectId, id);
   if (!existing) throw notFound('No experiment with that id.');
   db.prepare("UPDATE experiments SET status = 'stopped' WHERE id = ?").run(id);
   return { ...existing, status: 'stopped' };
 }
 
-export function deleteExperiment(db: DB, id: string): boolean {
-  return db.prepare('DELETE FROM experiments WHERE id = ?').run(id).changes > 0;
+export function deleteExperiment(db: DB, projectId: string, id: string): boolean {
+  return db.prepare('DELETE FROM experiments WHERE id = ? AND project_id = ?').run(id, projectId).changes > 0;
 }
 
 export function getEnrollment(
@@ -114,8 +123,12 @@ export interface VariantResult {
   revenue: number;
 }
 
-export function experimentResults(db: DB, experimentId: string): { control: VariantResult; treatment: VariantResult } {
-  const exp = getExperiment(db, experimentId);
+export function experimentResults(
+  db: DB,
+  projectId: string,
+  experimentId: string,
+): { control: VariantResult; treatment: VariantResult } {
+  const exp = getExperiment(db, projectId, experimentId);
   if (!exp) throw conflict('No experiment with that id.');
   const result = (variant: Variant): VariantResult => {
     const enrolled = (

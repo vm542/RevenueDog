@@ -51,14 +51,14 @@ export function registerPublicRoutes(app: FastifyInstance, db: DB, validators: V
 
     scoped.get('/v1/subscribers/:appUserId', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
-      const { subscriber } = getOrCreateSubscriber(db, appUserId);
+      const { subscriber } = getOrCreateSubscriber(db, req.projectId!, appUserId);
       return buildCustomerInfo(db, subscriber);
     });
 
     scoped.get('/v1/subscribers/:appUserId/offerings', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
       const platform = platformFrom(req);
-      const { subscriber } = getOrCreateSubscriber(db, appUserId);
+      const { subscriber } = getOrCreateSubscriber(db, req.projectId!, appUserId);
       return resolveOfferings(db, subscriber, platform);
     });
 
@@ -66,6 +66,7 @@ export function registerPublicRoutes(app: FastifyInstance, db: DB, validators: V
       const body = parse(receiptSchema, req.body);
       const store = body.store ?? storeFromPlatform(req);
       return processReceipt(db, validators, {
+        projectId: req.projectId!,
         appUserId: body.app_user_id,
         fetchToken: body.fetch_token,
         productId: body.product_id,
@@ -79,14 +80,14 @@ export function registerPublicRoutes(app: FastifyInstance, db: DB, validators: V
     scoped.post('/v1/subscribers/:appUserId/alias', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
       const body = parse(aliasSchema, req.body);
-      const { subscriber, created } = aliasSubscriber(db, appUserId, body.new_app_user_id);
+      const { subscriber, created } = aliasSubscriber(db, req.projectId!, appUserId, body.new_app_user_id);
       return { ...buildCustomerInfo(db, subscriber), created };
     });
 
     scoped.post('/v1/subscribers/:appUserId/attributes', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
       const body = parse(attributesSchema, req.body);
-      const { subscriber } = getOrCreateSubscriber(db, appUserId);
+      const { subscriber } = getOrCreateSubscriber(db, req.projectId!, appUserId);
       for (const [key, entry] of Object.entries(body.attributes)) {
         setAttribute(db, subscriber.id, key, entry.value);
       }
@@ -95,8 +96,9 @@ export function registerPublicRoutes(app: FastifyInstance, db: DB, validators: V
 
     scoped.delete('/v1/subscribers/:appUserId', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
-      const existed = deleteSubscriber(db, appUserId);
-      if (!existed && !findSubscriber(db, appUserId)) throw notFound('No subscriber with that app_user_id.');
+      const existed = deleteSubscriber(db, req.projectId!, appUserId);
+      if (!existed && !findSubscriber(db, req.projectId!, appUserId))
+        throw notFound('No subscriber with that app_user_id.');
       return { ok: true };
     });
   });

@@ -137,7 +137,7 @@ export function buildCustomerInfo(db: DB, subscriber: SubscriberRow): CustomerIn
   const entitlements: Record<string, EntitlementInfo> = {};
   const grant = (storeId: string, expiresDate: string | null, purchaseDate: string, gracePeriod: string | null) => {
     if (!isActive(expiresDate, now)) return;
-    for (const ent of entitlementsForStoreIdentifier(db, storeId)) {
+    for (const ent of entitlementsForStoreIdentifier(db, subscriber.project_id, storeId)) {
       const current = entitlements[ent.identifier];
       const candidate: EntitlementInfo = {
         expires_date: expiresDate,

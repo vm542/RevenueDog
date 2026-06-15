@@ -16,6 +16,7 @@ import { emitEvent } from './webhooks.js';
 import type { Validators } from './validators.js';
 
 export interface ProcessReceiptInput {
+  projectId: string;
   appUserId: string;
   fetchToken: string;
   productId: string; // store identifier (e.g. com.app.pro.monthly)
@@ -30,7 +31,8 @@ export async function processReceipt(
   validators: Validators,
   input: ProcessReceiptInput,
 ): Promise<CustomerInfo> {
-  const { subscriber } = getOrCreateSubscriber(db, input.appUserId);
+  const { projectId } = input;
+  const { subscriber } = getOrCreateSubscriber(db, projectId, input.appUserId);
 
   // Idempotency vs. theft: a store transaction belongs to exactly one subscriber.
   // Re-submitting the same (store, token) by its owner is a safe no-op; submitting
@@ -45,7 +47,8 @@ export async function processReceipt(
 
   const productStore: ProductStore = input.store;
   const product =
-    getProductByStoreId(db, input.productId, productStore) ?? getProductByStoreIdAny(db, input.productId);
+    getProductByStoreId(db, projectId, input.productId, productStore) ??
+    getProductByStoreIdAny(db, projectId, input.productId);
   if (!product) {
     throw receiptValidationFailed(
       `Unknown product "${input.productId}". Configure it in the dashboard before submitting receipts.`,
@@ -74,6 +77,7 @@ export async function processReceipt(
     eventType =
       validation.periodType === 'trial' ? 'trial_started' : priorReceiptCount > 0 ? 'renewal' : 'initial_purchase';
     upsertSubscription(db, {
+      projectId,
       subscriberId: subscriber.id,
       productStoreIdentifier: input.productId,
       store: input.store as SubStore,
@@ -86,6 +90,7 @@ export async function processReceipt(
   } else {
     eventType = 'non_renewing_purchase';
     insertNonSubscription(db, {
+      projectId,
       subscriberId: subscriber.id,
       productStoreIdentifier: input.productId,
       store: input.store as SubStore,
@@ -95,6 +100,7 @@ export async function processReceipt(
   }
 
   recordReceipt(db, {
+    projectId,
     store: input.store,
     fetchToken: input.fetchToken,
     subscriberId: subscriber.id,
@@ -106,6 +112,7 @@ export async function processReceipt(
   });
 
   emitEvent(db, {
+    projectId,
     type: eventType,
     subscriberId: subscriber.id,
     appUserId: input.appUserId,
@@ -116,6 +123,6 @@ export async function processReceipt(
     periodType: validation.periodType ?? 'normal',
   });
 
-  const fresh = findSubscriber(db, input.appUserId) ?? subscriber;
+  const fresh = findSubscriber(db, projectId, input.appUserId) ?? subscriber;
   return buildCustomerInfo(db, fresh);
 }

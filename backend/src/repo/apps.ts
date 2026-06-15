@@ -3,6 +3,7 @@ import { genId, genKey, nowIso } from '../ids.js';
 
 export interface AppRow {
   id: string;
+  project_id: string;
   name: string;
   public_api_key: string;
   /** RevenueCat-style iOS key (appl_…); the RC SDK authenticates with this on iOS. */
@@ -20,9 +21,10 @@ export interface CreateAppInput {
   package_name?: string | null;
 }
 
-export function createApp(db: DB, input: CreateAppInput): AppRow {
+export function createApp(db: DB, projectId: string, input: CreateAppInput): AppRow {
   const row: AppRow = {
     id: genId('app'),
+    project_id: projectId,
     name: input.name,
     public_api_key: genKey('pk'),
     apple_api_key: genKey('appl'),
@@ -32,18 +34,22 @@ export function createApp(db: DB, input: CreateAppInput): AppRow {
     created_at: nowIso(),
   };
   db.prepare(
-    `INSERT INTO apps (id, name, public_api_key, apple_api_key, google_api_key, bundle_id, package_name, created_at)
-     VALUES (@id, @name, @public_api_key, @apple_api_key, @google_api_key, @bundle_id, @package_name, @created_at)`,
+    `INSERT INTO apps (id, project_id, name, public_api_key, apple_api_key, google_api_key, bundle_id, package_name, created_at)
+     VALUES (@id, @project_id, @name, @public_api_key, @apple_api_key, @google_api_key, @bundle_id, @package_name, @created_at)`,
   ).run(row);
   return row;
 }
 
-export function listApps(db: DB): AppRow[] {
-  return db.prepare('SELECT * FROM apps ORDER BY created_at ASC').all() as AppRow[];
+export function listApps(db: DB, projectId: string): AppRow[] {
+  return db
+    .prepare('SELECT * FROM apps WHERE project_id = ? ORDER BY created_at ASC')
+    .all(projectId) as AppRow[];
 }
 
-export function getApp(db: DB, id: string): AppRow | undefined {
-  return db.prepare('SELECT * FROM apps WHERE id = ?').get(id) as AppRow | undefined;
+export function getApp(db: DB, projectId: string, id: string): AppRow | undefined {
+  return db.prepare('SELECT * FROM apps WHERE id = ? AND project_id = ?').get(id, projectId) as
+    | AppRow
+    | undefined;
 }
 
 /** Resolves an app by any of its public keys: generic pk_, or platform appl_/goog_. */
@@ -55,6 +61,6 @@ export function getAppByPublicKey(db: DB, key: string): AppRow | undefined {
     .get(key, key, key) as AppRow | undefined;
 }
 
-export function deleteApp(db: DB, id: string): boolean {
-  return db.prepare('DELETE FROM apps WHERE id = ?').run(id).changes > 0;
+export function deleteApp(db: DB, projectId: string, id: string): boolean {
+  return db.prepare('DELETE FROM apps WHERE id = ? AND project_id = ?').run(id, projectId).changes > 0;
 }

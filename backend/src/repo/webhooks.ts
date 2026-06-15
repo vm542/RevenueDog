@@ -31,7 +31,11 @@ function hydrate(row: WebhookRow): Webhook {
   };
 }
 
-export function createWebhook(db: DB, input: { url: string; events?: string[] | '*'; active?: boolean }): Webhook {
+export function createWebhook(
+  db: DB,
+  projectId: string,
+  input: { url: string; events?: string[] | '*'; active?: boolean },
+): Webhook {
   const row: WebhookRow = {
     id: genId('wh'),
     url: input.url,
@@ -41,26 +45,40 @@ export function createWebhook(db: DB, input: { url: string; events?: string[] | 
     created_at: nowIso(),
   };
   db.prepare(
-    'INSERT INTO webhooks (id, url, secret, events, active, created_at) VALUES (@id, @url, @secret, @events, @active, @created_at)',
-  ).run(row);
+    'INSERT INTO webhooks (id, project_id, url, secret, events, active, created_at) VALUES (@id, @project_id, @url, @secret, @events, @active, @created_at)',
+  ).run({ ...row, project_id: projectId });
   return hydrate(row);
 }
 
-export function listWebhooks(db: DB): Webhook[] {
-  return (db.prepare('SELECT * FROM webhooks ORDER BY created_at ASC').all() as WebhookRow[]).map(hydrate);
+export function listWebhooks(db: DB, projectId: string): Webhook[] {
+  return (
+    db.prepare('SELECT * FROM webhooks WHERE project_id = ? ORDER BY created_at ASC').all(projectId) as WebhookRow[]
+  ).map(hydrate);
 }
 
-export function getWebhook(db: DB, id: string): Webhook | undefined {
-  const row = db.prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow | undefined;
+export function getWebhook(db: DB, projectId: string, id: string): Webhook | undefined {
+  const row = db.prepare('SELECT * FROM webhooks WHERE id = ? AND project_id = ?').get(id, projectId) as
+    | WebhookRow
+    | undefined;
   return row ? hydrate(row) : undefined;
 }
 
-export function activeWebhooks(db: DB): Webhook[] {
-  return (db.prepare('SELECT * FROM webhooks WHERE active = 1').all() as WebhookRow[]).map(hydrate);
+/** Active webhooks for a project — used when dispatching that project's events. */
+export function activeWebhooks(db: DB, projectId: string): Webhook[] {
+  return (
+    db.prepare('SELECT * FROM webhooks WHERE project_id = ? AND active = 1').all(projectId) as WebhookRow[]
+  ).map(hydrate);
 }
 
-export function updateWebhook(db: DB, id: string, patch: { url?: string; events?: string[] | '*'; active?: boolean }): Webhook {
-  const existing = db.prepare('SELECT * FROM webhooks WHERE id = ?').get(id) as WebhookRow | undefined;
+export function updateWebhook(
+  db: DB,
+  projectId: string,
+  id: string,
+  patch: { url?: string; events?: string[] | '*'; active?: boolean },
+): Webhook {
+  const existing = db.prepare('SELECT * FROM webhooks WHERE id = ? AND project_id = ?').get(id, projectId) as
+    | WebhookRow
+    | undefined;
   if (!existing) throw notFound('No webhook with that id.');
   const next: WebhookRow = {
     ...existing,
@@ -72,8 +90,8 @@ export function updateWebhook(db: DB, id: string, patch: { url?: string; events?
   return hydrate(next);
 }
 
-export function deleteWebhook(db: DB, id: string): boolean {
-  return db.prepare('DELETE FROM webhooks WHERE id = ?').run(id).changes > 0;
+export function deleteWebhook(db: DB, projectId: string, id: string): boolean {
+  return db.prepare('DELETE FROM webhooks WHERE id = ? AND project_id = ?').run(id, projectId).changes > 0;
 }
 
 export interface DeliveryRow {

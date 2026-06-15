@@ -139,9 +139,9 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/products', async (req, reply) => {
       const body = parse(productCreate, req.body);
       reply.code(201);
-      return createProduct(db, body);
+      return createProduct(db, req.projectId!, body);
     });
-    scoped.get('/v1/admin/products', async () => ({ items: listProducts(db) }));
+    scoped.get('/v1/admin/products', async (req) => ({ items: listProducts(db, req.projectId!) }));
     scoped.post('/v1/admin/products/import', async (req) => {
       const body = parse(z.object({ products: z.array(productCreate) }), req.body);
       let imported = 0;
@@ -149,7 +149,7 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       const failed: { index: number; error: string }[] = [];
       body.products.forEach((p, i) => {
         try {
-          createProduct(db, p);
+          createProduct(db, req.projectId!, p);
           imported++;
         } catch (err) {
           if (err instanceof Error && /already exists/.test(err.message)) skipped++;
@@ -164,19 +164,20 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
         throw invalidRequest('store must be app_store or play_store.');
       }
       const { importStoreProducts } = await import('../services/productImport.js');
-      return importStoreProducts(db, store, config);
+      return importStoreProducts(db, req.projectId!, store, config);
     });
     scoped.get('/v1/admin/products/:id', async (req) => {
-      const p = getProduct(db, (req.params as { id: string }).id);
+      const p = getProduct(db, req.projectId!, (req.params as { id: string }).id);
       if (!p) throw notFound('No product with that id.');
       return p;
     });
     scoped.patch('/v1/admin/products/:id', async (req) => {
       const body = parse(productPatch, req.body);
-      return updateProduct(db, (req.params as { id: string }).id, body);
+      return updateProduct(db, req.projectId!, (req.params as { id: string }).id, body);
     });
     scoped.delete('/v1/admin/products/:id', async (req) => {
-      if (!deleteProduct(db, (req.params as { id: string }).id)) throw notFound('No product with that id.');
+      if (!deleteProduct(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No product with that id.');
       return { ok: true };
     });
 
@@ -184,20 +185,21 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/entitlements', async (req, reply) => {
       const body = parse(entitlementCreate, req.body);
       reply.code(201);
-      return createEntitlement(db, body);
+      return createEntitlement(db, req.projectId!, body);
     });
-    scoped.get('/v1/admin/entitlements', async () => ({ items: listEntitlements(db) }));
+    scoped.get('/v1/admin/entitlements', async (req) => ({ items: listEntitlements(db, req.projectId!) }));
     scoped.get('/v1/admin/entitlements/:id', async (req) => {
-      const e = getEntitlement(db, (req.params as { id: string }).id);
+      const e = getEntitlement(db, req.projectId!, (req.params as { id: string }).id);
       if (!e) throw notFound('No entitlement with that id.');
       return e;
     });
     scoped.patch('/v1/admin/entitlements/:id', async (req) => {
       const body = parse(entitlementPatch, req.body);
-      return updateEntitlement(db, (req.params as { id: string }).id, body);
+      return updateEntitlement(db, req.projectId!, (req.params as { id: string }).id, body);
     });
     scoped.delete('/v1/admin/entitlements/:id', async (req) => {
-      if (!deleteEntitlement(db, (req.params as { id: string }).id)) throw notFound('No entitlement with that id.');
+      if (!deleteEntitlement(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No entitlement with that id.');
       return { ok: true };
     });
 
@@ -205,20 +207,23 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/offerings', async (req, reply) => {
       const body = parse(offeringCreate, req.body);
       reply.code(201);
-      return serializeOffering(createOffering(db, body));
+      return serializeOffering(createOffering(db, req.projectId!, body));
     });
-    scoped.get('/v1/admin/offerings', async () => ({ items: listOfferings(db).map(serializeOffering) }));
+    scoped.get('/v1/admin/offerings', async (req) => ({
+      items: listOfferings(db, req.projectId!).map(serializeOffering),
+    }));
     scoped.get('/v1/admin/offerings/:id', async (req) => {
-      const o = getOffering(db, (req.params as { id: string }).id);
+      const o = getOffering(db, req.projectId!, (req.params as { id: string }).id);
       if (!o) throw notFound('No offering with that id.');
       return serializeOffering(o);
     });
     scoped.patch('/v1/admin/offerings/:id', async (req) => {
       const body = parse(offeringPatch, req.body);
-      return serializeOffering(updateOffering(db, (req.params as { id: string }).id, body));
+      return serializeOffering(updateOffering(db, req.projectId!, (req.params as { id: string }).id, body));
     });
     scoped.delete('/v1/admin/offerings/:id', async (req) => {
-      if (!deleteOffering(db, (req.params as { id: string }).id)) throw notFound('No offering with that id.');
+      if (!deleteOffering(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No offering with that id.');
       return { ok: true };
     });
 
@@ -226,24 +231,27 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/experiments', async (req, reply) => {
       const body = parse(experimentCreate, req.body);
       reply.code(201);
-      return createExperiment(db, body);
+      return createExperiment(db, req.projectId!, body);
     });
-    scoped.get('/v1/admin/experiments', async () => ({ items: listExperiments(db) }));
+    scoped.get('/v1/admin/experiments', async (req) => ({ items: listExperiments(db, req.projectId!) }));
     scoped.get('/v1/admin/experiments/:id', async (req) => {
-      const e = getExperiment(db, (req.params as { id: string }).id);
+      const e = getExperiment(db, req.projectId!, (req.params as { id: string }).id);
       if (!e) throw notFound('No experiment with that id.');
       return e;
     });
     scoped.patch('/v1/admin/experiments/:id', async (req) => {
       const body = parse(experimentPatch, req.body);
-      return updateExperiment(db, (req.params as { id: string }).id, body);
+      return updateExperiment(db, req.projectId!, (req.params as { id: string }).id, body);
     });
-    scoped.post('/v1/admin/experiments/:id/stop', async (req) => stopExperiment(db, (req.params as { id: string }).id));
+    scoped.post('/v1/admin/experiments/:id/stop', async (req) =>
+      stopExperiment(db, req.projectId!, (req.params as { id: string }).id),
+    );
     scoped.get('/v1/admin/experiments/:id/results', async (req) =>
-      experimentResults(db, (req.params as { id: string }).id),
+      experimentResults(db, req.projectId!, (req.params as { id: string }).id),
     );
     scoped.delete('/v1/admin/experiments/:id', async (req) => {
-      if (!deleteExperiment(db, (req.params as { id: string }).id)) throw notFound('No experiment with that id.');
+      if (!deleteExperiment(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No experiment with that id.');
       return { ok: true };
     });
 
@@ -251,16 +259,17 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/apps', async (req, reply) => {
       const body = parse(appCreate, req.body);
       reply.code(201);
-      return createApp(db, body);
+      return createApp(db, req.projectId!, body);
     });
-    scoped.get('/v1/admin/apps', async () => ({ items: listApps(db) }));
+    scoped.get('/v1/admin/apps', async (req) => ({ items: listApps(db, req.projectId!) }));
     scoped.get('/v1/admin/apps/:id', async (req) => {
-      const a = getApp(db, (req.params as { id: string }).id);
+      const a = getApp(db, req.projectId!, (req.params as { id: string }).id);
       if (!a) throw notFound('No app with that id.');
       return a;
     });
     scoped.delete('/v1/admin/apps/:id', async (req) => {
-      if (!deleteApp(db, (req.params as { id: string }).id)) throw notFound('No app with that id.');
+      if (!deleteApp(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No app with that id.');
       return { ok: true };
     });
 
@@ -273,6 +282,7 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
         const r = body.receipts[i]!;
         try {
           await processReceipt(db, validators, {
+            projectId: req.projectId!,
             appUserId: r.app_user_id,
             fetchToken: r.fetch_token,
             productId: r.product_id,
@@ -293,7 +303,7 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       const q = req.query as { limit?: string; offset?: string };
       const limit = Math.min(Number(q.limit ?? 100), 500);
       const offset = Number(q.offset ?? 0);
-      const items = listSubscribers(db, limit, offset).map((s) => {
+      const items = listSubscribers(db, req.projectId!, limit, offset).map((s) => {
         const info = buildCustomerInfo(db, s);
         return {
           id: s.id,
@@ -309,21 +319,23 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
 
     scoped.get('/v1/admin/subscribers/:appUserId', async (req) => {
       const { appUserId } = req.params as { appUserId: string };
-      const sub = findSubscriber(db, appUserId);
+      const sub = findSubscriber(db, req.projectId!, appUserId);
       if (!sub) throw notFound('No subscriber with that app_user_id.');
       return buildCustomerInfo(db, sub);
     });
 
     scoped.post('/v1/admin/subscribers/:appUserId/entitlements/:identifier/grant', async (req) => {
+      const pid = req.projectId!;
       const { appUserId, identifier } = req.params as { appUserId: string; identifier: string };
       const body = parse(grantSchema, req.body);
-      const ent = listEntitlements(db).find((e) => e.identifier === identifier);
+      const ent = listEntitlements(db, pid).find((e) => e.identifier === identifier);
       if (!ent) throw notFound(`No entitlement with identifier "${identifier}".`);
       const productId = ent.product_ids[0];
       if (!productId) throw conflict('Entitlement has no products to grant.');
-      const product = getProduct(db, productId)!;
-      const { subscriber } = getOrCreateSubscriber(db, appUserId);
+      const product = getProduct(db, pid, productId)!;
+      const { subscriber } = getOrCreateSubscriber(db, pid, appUserId);
       upsertSubscription(db, {
+        projectId: pid,
         subscriberId: subscriber.id,
         productStoreIdentifier: product.store_identifier,
         store: 'promotional',
@@ -332,6 +344,7 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
         periodType: 'normal',
       });
       emitEvent(db, {
+        projectId: pid,
         type: 'promotional_grant',
         subscriberId: subscriber.id,
         appUserId,
@@ -343,12 +356,13 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     });
 
     scoped.post('/v1/admin/subscribers/:appUserId/entitlements/:identifier/revoke', async (req) => {
+      const pid = req.projectId!;
       const { appUserId, identifier } = req.params as { appUserId: string; identifier: string };
-      const sub = findSubscriber(db, appUserId);
+      const sub = findSubscriber(db, pid, appUserId);
       if (!sub) throw notFound('No subscriber with that app_user_id.');
-      const ent = listEntitlements(db).find((e) => e.identifier === identifier);
+      const ent = listEntitlements(db, pid).find((e) => e.identifier === identifier);
       if (!ent) throw notFound(`No entitlement with identifier "${identifier}".`);
-      const storeIds = ent.product_ids.map((pid) => getProduct(db, pid)?.store_identifier).filter(Boolean);
+      const storeIds = ent.product_ids.map((p) => getProduct(db, pid, p)?.store_identifier).filter(Boolean);
       for (const sid of storeIds) {
         db.prepare(
           "DELETE FROM subscriptions WHERE subscriber_id = ? AND product_store_identifier = ? AND store = 'promotional'",
@@ -366,41 +380,44 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
     scoped.post('/v1/admin/webhooks', async (req, reply) => {
       const body = parse(webhookCreate, req.body);
       reply.code(201);
-      return createWebhook(db, body);
+      return createWebhook(db, req.projectId!, body);
     });
-    scoped.get('/v1/admin/webhooks', async () => ({ items: listWebhooks(db) }));
+    scoped.get('/v1/admin/webhooks', async (req) => ({ items: listWebhooks(db, req.projectId!) }));
     scoped.get('/v1/admin/webhooks/:id', async (req) => {
-      const wh = getWebhook(db, (req.params as { id: string }).id);
+      const wh = getWebhook(db, req.projectId!, (req.params as { id: string }).id);
       if (!wh) throw notFound('No webhook with that id.');
       return wh;
     });
     scoped.patch('/v1/admin/webhooks/:id', async (req) => {
       const body = parse(webhookCreate.partial(), req.body);
-      return updateWebhook(db, (req.params as { id: string }).id, body);
+      return updateWebhook(db, req.projectId!, (req.params as { id: string }).id, body);
     });
     scoped.delete('/v1/admin/webhooks/:id', async (req) => {
-      if (!deleteWebhook(db, (req.params as { id: string }).id)) throw notFound('No webhook with that id.');
+      if (!deleteWebhook(db, req.projectId!, (req.params as { id: string }).id))
+        throw notFound('No webhook with that id.');
       return { ok: true };
     });
-    scoped.get('/v1/admin/webhooks/:id/deliveries', async (req) => ({
-      items: listDeliveries(db, (req.params as { id: string }).id),
-    }));
-    scoped.post('/v1/admin/webhooks/:id/test', async (req) => {
-      const wh = getWebhook(db, (req.params as { id: string }).id);
+    scoped.get('/v1/admin/webhooks/:id/deliveries', async (req) => {
+      const wh = getWebhook(db, req.projectId!, (req.params as { id: string }).id);
       if (!wh) throw notFound('No webhook with that id.');
-      emitEvent(db, { type: 'initial_purchase', appUserId: 'test_user', productStoreIdentifier: 'com.test.product', store: 'app_store', price: 9.99, currency: 'USD', periodType: 'normal' });
+      return { items: listDeliveries(db, wh.id) };
+    });
+    scoped.post('/v1/admin/webhooks/:id/test', async (req) => {
+      const wh = getWebhook(db, req.projectId!, (req.params as { id: string }).id);
+      if (!wh) throw notFound('No webhook with that id.');
+      emitEvent(db, { projectId: req.projectId!, type: 'initial_purchase', appUserId: 'test_user', productStoreIdentifier: 'com.test.product', store: 'app_store', price: 9.99, currency: 'USD', periodType: 'normal' });
       return { ok: true, message: 'Test event dispatched to all active webhooks.' };
     });
 
     // --- Events feed ---
     scoped.get('/v1/admin/events', async (req) => {
       const q = req.query as { limit?: string };
-      return { items: listEvents(db, Math.min(Number(q.limit ?? 50), 200)) };
+      return { items: listEvents(db, req.projectId!, Math.min(Number(q.limit ?? 50), 200)) };
     });
 
     // --- SDK diagnostics ---
-    scoped.get('/v1/admin/diagnostics', async () =>
-      buildDiagnostics(db, { app_store: config.appleValidation, play_store: config.googleValidation }),
+    scoped.get('/v1/admin/diagnostics', async (req) =>
+      buildDiagnostics(db, req.projectId!, { app_store: config.appleValidation, play_store: config.googleValidation }),
     );
 
     // --- Dashboard analytics ---
@@ -409,12 +426,12 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       const range = Math.min(Math.max(Number(q.range ?? 28), 1), 365);
       const { buildOverview } = await import('../services/analytics.js');
       if (Number.isNaN(range)) throw invalidRequest('range must be a number of days.');
-      return buildOverview(db, range);
+      return buildOverview(db, req.projectId!, range);
     });
 
-    scoped.get('/v1/admin/insights', async () => {
+    scoped.get('/v1/admin/insights', async (req) => {
       const { buildInsights } = await import('../services/insights.js');
-      return buildInsights(db);
+      return buildInsights(db, req.projectId!);
     });
   });
 }

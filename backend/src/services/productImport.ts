@@ -17,7 +17,13 @@ export interface ImportResult {
  * `store_problem` so the dashboard can prompt the user — meanwhile the CSV / bulk-JSON
  * import (`POST /v1/admin/products/import`) works without any store credentials.
  */
-export async function importStoreProducts(db: DB, store: ProductStore, _config: Config): Promise<ImportResult> {
+export async function importStoreProducts(
+  db: DB,
+  projectId: string,
+  store: ProductStore,
+  _config: Config,
+): Promise<ImportResult> {
+  void projectId; // used once the real catalog fetchers below are implemented
   if (store === 'app_store') {
     if (!process.env.APPLE_ISSUER_ID || !process.env.APPLE_KEY_ID || !process.env.APPLE_PRIVATE_KEY) {
       throw storeProblem(
@@ -49,6 +55,7 @@ async function fetchPlayCatalog(_db: DB): Promise<ImportResult> {
 /** Used by the bulk importer to surface a consistent shape (kept for symmetry/tests). */
 export function bulkImport(
   db: DB,
+  projectId: string,
   products: { store_identifier: string; type: 'subscription' | 'non_consumable' | 'consumable'; store: ProductStore; display_name: string; duration?: string | null }[],
 ): ImportResult {
   let imported = 0;
@@ -56,7 +63,7 @@ export function bulkImport(
   const failed: { identifier: string; error: string }[] = [];
   for (const p of products) {
     try {
-      createProduct(db, p);
+      createProduct(db, projectId, p);
       imported++;
     } catch (err) {
       if (err instanceof Error && /already exists/.test(err.message)) skipped++;

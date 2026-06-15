@@ -171,6 +171,61 @@ describe('api docs', () => {
   });
 });
 
+describe('multi-tenancy isolation', () => {
+  // Two projects on one backend must never see each other's data. This test IS the
+  // security guarantee for the hosted (multi-tenant) deployment.
+  it('scopes apps, catalog, and subscribers per project', async () => {
+    // Project A = the default project (root sk_ + its app `pk`).
+    await setupCatalog(); // product com.app.pro.monthly + entitlement `pro` in project A
+    await pub('POST', '/v1/receipts', {
+      app_user_id: 'shared-id',
+      fetch_token: 'tok-A',
+      product_id: 'com.app.pro.monthly',
+      store: 'app_store',
+    });
+
+    // Project B = a second project with its own secret key, created directly in the DB.
+    const { createOrganization, createProject } = await import('../src/repo/projects.js');
+    const org = createOrganization(db, 'Org B');
+    const projB = createProject(db, org.id, 'Project B');
+    const skB = 'sk_projectB';
+    db.prepare('INSERT INTO secret_keys (key, project_id, created_at) VALUES (?, ?, ?)').run(
+      skB,
+      projB.id,
+      new Date().toISOString(),
+    );
+    const adminB = (method: 'POST' | 'GET', url: string, payload?: unknown) =>
+      app.inject({ method, url, headers: { authorization: `Bearer ${skB}` }, payload: payload as object });
+
+    // B sees none of A's catalog or subscribers.
+    expect((await adminB('GET', '/v1/admin/products')).json().items).toHaveLength(0);
+    expect((await adminB('GET', '/v1/admin/apps')).json().items).toHaveLength(0);
+    expect((await adminB('GET', '/v1/admin/subscribers')).json().items).toHaveLength(0);
+
+    // B can create its own app with the SAME product id — no collision with A.
+    const pkB = (await adminB('POST', '/v1/admin/apps', { name: 'App B' })).json().public_api_key;
+    await adminB('POST', '/v1/admin/products', {
+      store_identifier: 'com.app.pro.monthly',
+      type: 'subscription',
+      store: 'app_store',
+      display_name: 'B Pro',
+      duration: 'P1M',
+    });
+
+    // The SAME app_user_id in B is a distinct subscriber with no entitlements from A.
+    const infoB = await app.inject({
+      method: 'GET',
+      url: '/v1/subscribers/shared-id',
+      headers: { authorization: `Bearer ${pkB}`, 'x-platform': 'ios' },
+    });
+    expect(Object.keys(infoB.json().subscriber.entitlements)).not.toContain('pro');
+
+    // A still has exactly its own data.
+    expect((await admin('GET', '/v1/admin/products')).json().items).toHaveLength(1);
+    expect((await admin('GET', '/v1/admin/subscribers')).json().items).toHaveLength(1);
+  });
+});
+
 describe('RevenueCat compatibility', () => {
   // Locks the CustomerInfo response to RevenueCat's documented schema so the
   // official RevenueCat SDK can decode it unchanged (drop-in via Purchases.proxyURL).

@@ -41,8 +41,10 @@ export function allPings(db: DB): SdkPing[] {
   return db.prepare('SELECT * FROM sdk_pings ORDER BY last_seen DESC').all() as SdkPing[];
 }
 
-function count(db: DB, table: string): number {
-  return (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c;
+function count(db: DB, table: string, projectId: string): number {
+  return (
+    db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE project_id = ?`).get(projectId) as { c: number }
+  ).c;
 }
 
 export interface Diagnostics {
@@ -59,19 +61,25 @@ export interface Diagnostics {
   }[];
 }
 
-export function buildDiagnostics(db: DB, validation: { app_store: string; play_store: string }): Diagnostics {
-  const apps = db.prepare('SELECT id, name FROM apps ORDER BY created_at ASC').all() as { id: string; name: string }[];
+export function buildDiagnostics(
+  db: DB,
+  projectId: string,
+  validation: { app_store: string; play_store: string },
+): Diagnostics {
+  const apps = db
+    .prepare('SELECT id, name FROM apps WHERE project_id = ? ORDER BY created_at ASC')
+    .all(projectId) as { id: string; name: string }[];
   return {
     backend_version: '0.1.0',
     generated_at: nowIso(),
     validation,
     totals: {
       apps: apps.length,
-      products: count(db, 'products'),
-      entitlements: count(db, 'entitlements'),
-      offerings: count(db, 'offerings'),
-      subscribers: count(db, 'subscribers'),
-      events: count(db, 'events'),
+      products: count(db, 'products', projectId),
+      entitlements: count(db, 'entitlements', projectId),
+      offerings: count(db, 'offerings', projectId),
+      subscribers: count(db, 'subscribers', projectId),
+      events: count(db, 'events', projectId),
     },
     apps: apps.map((a) => {
       const pings = pingsForApp(db, a.id);

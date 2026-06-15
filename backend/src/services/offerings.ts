@@ -37,11 +37,11 @@ function bucket(experimentId: string, subscriberId: string): number {
   return hash.readUInt32BE(0) % 100;
 }
 
-function resolveOffering(db: DB, offering: Offering, platform: Platform): ResolvedOffering {
+function resolveOffering(db: DB, projectId: string, offering: Offering, platform: Platform): ResolvedOffering {
   const store = storeForPlatform(platform);
   const packages: ResolvedPackage[] = [];
   for (const pkg of offering.packages) {
-    const products = pkg.product_ids.map((id) => getProduct(db, id)).filter((p) => p !== undefined);
+    const products = pkg.product_ids.map((id) => getProduct(db, projectId, id)).filter((p) => p !== undefined);
     const match = products.find((p) => p!.store === store);
     if (!match) continue; // never surface a package with no product for this platform
     packages.push({
@@ -63,10 +63,11 @@ function resolveOffering(db: DB, offering: Offering, platform: Platform): Resolv
  * assignment (sticky, deterministic) when a running experiment exists.
  */
 export function resolveOfferings(db: DB, subscriber: SubscriberRow, platform: Platform): OfferingsResponse {
-  let currentOfferingId: string | null = getCurrentOffering(db)?.identifier ?? null;
+  const projectId = subscriber.project_id;
+  let currentOfferingId: string | null = getCurrentOffering(db, projectId)?.identifier ?? null;
   let experiment: { id: string; variant: Variant } | null = null;
 
-  const running = getRunningExperiment(db);
+  const running = getRunningExperiment(db, projectId);
   if (running) {
     let variant: Variant;
     const enrollment = getEnrollment(db, running.id, subscriber.id);
@@ -77,13 +78,13 @@ export function resolveOfferings(db: DB, subscriber: SubscriberRow, platform: Pl
       enroll(db, running.id, subscriber.id, variant);
     }
     const variantOfferingId = variant === 'treatment' ? running.treatment_offering_id : running.control_offering_id;
-    const variantOffering = getOffering(db, variantOfferingId);
+    const variantOffering = getOffering(db, projectId, variantOfferingId);
     if (variantOffering) {
       currentOfferingId = variantOffering.identifier;
       experiment = { id: running.id, variant };
     }
   }
 
-  const offerings = listOfferings(db).map((o) => resolveOffering(db, o, platform));
+  const offerings = listOfferings(db, projectId).map((o) => resolveOffering(db, projectId, o, platform));
   return { current_offering_id: currentOfferingId, offerings, experiment };
 }

@@ -3,6 +3,7 @@ import { genId, nowIso } from '../ids.js';
 
 export interface ReceiptRow {
   id: string;
+  project_id: string;
   store: string;
   fetch_token: string;
   subscriber_id: string;
@@ -15,6 +16,7 @@ export interface ReceiptRow {
 }
 
 export interface RecordReceiptInput {
+  projectId: string;
   store: string;
   fetchToken: string;
   subscriberId: string;
@@ -34,6 +36,7 @@ export function findReceipt(db: DB, store: string, fetchToken: string): ReceiptR
 export function recordReceipt(db: DB, input: RecordReceiptInput): ReceiptRow {
   const row: ReceiptRow = {
     id: genId('rcpt'),
+    project_id: input.projectId,
     store: input.store,
     fetch_token: input.fetchToken,
     subscriber_id: input.subscriberId,
@@ -45,9 +48,9 @@ export function recordReceipt(db: DB, input: RecordReceiptInput): ReceiptRow {
     created_at: nowIso(),
   };
   db.prepare(
-    `INSERT INTO receipts (id, store, fetch_token, subscriber_id, product_id, product_store_identifier,
+    `INSERT INTO receipts (id, project_id, store, fetch_token, subscriber_id, product_id, product_store_identifier,
       presented_offering_identifier, price, currency, created_at)
-     VALUES (@id, @store, @fetch_token, @subscriber_id, @product_id, @product_store_identifier,
+     VALUES (@id, @project_id, @store, @fetch_token, @subscriber_id, @product_id, @product_store_identifier,
       @presented_offering_identifier, @price, @currency, @created_at)`,
   ).run(row);
   return row;

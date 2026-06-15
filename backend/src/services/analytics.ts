@@ -65,7 +65,7 @@ function seriesToPoints(series: Map<string, number>): Point[] {
   return [...series.entries()].map(([date, value]) => ({ date, value: Number(value.toFixed(2)) }));
 }
 
-export function buildOverview(db: DB, rangeDays = 28): Overview {
+export function buildOverview(db: DB, projectId: string, rangeDays = 28): Overview {
   const now = Date.now();
   const since = new Date(now - rangeDays * 24 * 60 * 60 * 1000).toISOString();
   const nowIsoStr = new Date(now).toISOString();
@@ -75,40 +75,46 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
     db
       .prepare(
         `SELECT COUNT(*) AS c FROM subscriptions
-         WHERE (expires_date IS NULL OR expires_date > ?) AND period_type = 'normal'`,
+         WHERE project_id = ? AND (expires_date IS NULL OR expires_date > ?) AND period_type = 'normal'`,
       )
-      .get(nowIsoStr) as { c: number }
+      .get(projectId, nowIsoStr) as { c: number }
   ).c;
 
   const activeTrials = (
     db
       .prepare(
         `SELECT COUNT(*) AS c FROM subscriptions
-         WHERE (expires_date IS NULL OR expires_date > ?) AND period_type IN ('trial','intro')`,
+         WHERE project_id = ? AND (expires_date IS NULL OR expires_date > ?) AND period_type IN ('trial','intro')`,
       )
-      .get(nowIsoStr) as { c: number }
+      .get(projectId, nowIsoStr) as { c: number }
   ).c;
 
   const revenue = Number(
-    (db.prepare('SELECT COALESCE(SUM(price),0) AS s FROM receipts WHERE created_at >= ?').get(since) as {
-      s: number;
-    }).s ?? 0,
+    (
+      db
+        .prepare('SELECT COALESCE(SUM(price),0) AS s FROM receipts WHERE project_id = ? AND created_at >= ?')
+        .get(projectId, since) as { s: number }
+    ).s ?? 0,
   );
 
   const newCustomers = (
-    db.prepare('SELECT COUNT(*) AS c FROM subscribers WHERE first_seen >= ?').get(since) as { c: number }
+    db
+      .prepare('SELECT COUNT(*) AS c FROM subscribers WHERE project_id = ? AND first_seen >= ?')
+      .get(projectId, since) as { c: number }
   ).c;
 
   const activeSubscribers = (
     db
       .prepare(
         `SELECT COUNT(DISTINCT subscriber_id) AS c FROM subscriptions
-         WHERE (expires_date IS NULL OR expires_date > ?)`,
+         WHERE project_id = ? AND (expires_date IS NULL OR expires_date > ?)`,
       )
-      .get(nowIsoStr) as { c: number }
+      .get(projectId, nowIsoStr) as { c: number }
   ).c;
 
-  const totalSubscribers = (db.prepare('SELECT COUNT(*) AS c FROM subscribers').get() as { c: number }).c;
+  const totalSubscribers = (
+    db.prepare('SELECT COUNT(*) AS c FROM subscribers WHERE project_id = ?').get(projectId) as { c: number }
+  ).c;
 
   // --- MRR (normalize each active, paying subscription's last price to a monthly figure) ---
   const activeSubs = db
@@ -117,11 +123,11 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
               (SELECT price FROM receipts r WHERE r.subscriber_id = s.subscriber_id
                 AND r.product_store_identifier = s.product_store_identifier
                 ORDER BY r.created_at DESC LIMIT 1) AS price,
-              (SELECT duration FROM products p WHERE p.store_identifier = s.product_store_identifier LIMIT 1) AS duration
+              (SELECT duration FROM products p WHERE p.project_id = s.project_id AND p.store_identifier = s.product_store_identifier LIMIT 1) AS duration
        FROM subscriptions s
-       WHERE (s.expires_date IS NULL OR s.expires_date > ?) AND s.period_type = 'normal'`,
+       WHERE s.project_id = ? AND (s.expires_date IS NULL OR s.expires_date > ?) AND s.period_type = 'normal'`,
     )
-    .all(nowIsoStr) as { price: number | null; duration: string | null }[];
+    .all(projectId, nowIsoStr) as { price: number | null; duration: string | null }[];
   let mrr = 0;
   for (const row of activeSubs) {
     const months = durationMonths(row.duration);
@@ -133,9 +139,9 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
   for (const r of db
     .prepare(
       `SELECT substr(created_at,1,10) AS day, COALESCE(SUM(price),0) AS s
-       FROM receipts WHERE created_at >= ? GROUP BY day`,
+       FROM receipts WHERE project_id = ? AND created_at >= ? GROUP BY day`,
     )
-    .all(since) as { day: string; s: number }[]) {
+    .all(projectId, since) as { day: string; s: number }[]) {
     if (revenueSeries.has(r.day)) revenueSeries.set(r.day, Number(r.s ?? 0));
   }
 
@@ -143,9 +149,9 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
   for (const r of db
     .prepare(
       `SELECT substr(first_seen,1,10) AS day, COUNT(*) AS c
-       FROM subscribers WHERE first_seen >= ? GROUP BY day`,
+       FROM subscribers WHERE project_id = ? AND first_seen >= ? GROUP BY day`,
     )
-    .all(since) as { day: string; c: number }[]) {
+    .all(projectId, since) as { day: string; c: number }[]) {
     if (newCustomersSeries.has(r.day)) newCustomersSeries.set(r.day, r.c);
   }
 
@@ -153,17 +159,17 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
   for (const r of db
     .prepare(
       `SELECT substr(purchase_date,1,10) AS day, COUNT(*) AS c
-       FROM subscriptions WHERE purchase_date >= ? GROUP BY day`,
+       FROM subscriptions WHERE project_id = ? AND purchase_date >= ? GROUP BY day`,
     )
-    .all(since) as { day: string; c: number }[]) {
+    .all(projectId, since) as { day: string; c: number }[]) {
     if (subsStartedSeries.has(r.day)) subsStartedSeries.set(r.day, r.c);
   }
 
   // Active subscriptions per day: subs whose window covers the end of that day.
   const activeSeries = emptySeries(rangeDays);
   const allSubs = db
-    .prepare('SELECT purchase_date, expires_date FROM subscriptions')
-    .all() as { purchase_date: string; expires_date: string | null }[];
+    .prepare('SELECT purchase_date, expires_date FROM subscriptions WHERE project_id = ?')
+    .all(projectId) as { purchase_date: string; expires_date: string | null }[];
   for (const day of activeSeries.keys()) {
     const dayEnd = new Date(`${day}T23:59:59Z`).getTime();
     let count = 0;
@@ -181,13 +187,14 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
       .prepare(
         `SELECT COALESCE(p.display_name, r.product_store_identifier) AS product, COALESCE(SUM(r.price),0) AS revenue
          FROM receipts r LEFT JOIN products p ON p.id = r.product_id
+         WHERE r.project_id = ?
          GROUP BY product ORDER BY revenue DESC LIMIT 10`,
       )
-      .all() as { product: string; revenue: number }[]
+      .all(projectId) as { product: string; revenue: number }[]
   ).map((r) => ({ product: r.product, revenue: Number((r.revenue ?? 0).toFixed(2)) }));
 
   // --- Subscription status breakdown ---
-  const statusRows = db.prepare('SELECT * FROM subscriptions').all() as {
+  const statusRows = db.prepare('SELECT * FROM subscriptions WHERE project_id = ?').all(projectId) as {
     expires_date: string | null;
     period_type: string;
     billing_issues_detected_at: string | null;
@@ -211,9 +218,10 @@ export function buildOverview(db: DB, rangeDays = 28): Overview {
                 COALESCE(p.display_name, r.product_store_identifier) AS product,
                 (SELECT a.app_user_id FROM aliases a WHERE a.subscriber_id = r.subscriber_id LIMIT 1) AS app_user_id
          FROM receipts r LEFT JOIN products p ON p.id = r.product_id
+         WHERE r.project_id = ?
          ORDER BY r.created_at DESC LIMIT 15`,
       )
-      .all() as Overview['recent_transactions']
+      .all(projectId) as Overview['recent_transactions']
   );
 
   return {

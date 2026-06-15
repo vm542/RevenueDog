@@ -21,15 +21,24 @@ function scalar(db: DB, sql: string, ...params: unknown[]): number {
   return Number((db.prepare(sql).get(...params) as { v: number }).v ?? 0);
 }
 
-export function buildInsights(db: DB): Insights {
+export function buildInsights(db: DB, projectId: string): Insights {
   const now = nowIso();
 
-  const totalCustomers = scalar(db, 'SELECT COUNT(*) AS v FROM subscribers');
-  const purchased = scalar(db, 'SELECT COUNT(DISTINCT subscriber_id) AS v FROM receipts');
-  const subscribers = scalar(db, 'SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions');
+  const totalCustomers = scalar(db, 'SELECT COUNT(*) AS v FROM subscribers WHERE project_id = ?', projectId);
+  const purchased = scalar(
+    db,
+    'SELECT COUNT(DISTINCT subscriber_id) AS v FROM receipts WHERE project_id = ?',
+    projectId,
+  );
+  const subscribers = scalar(
+    db,
+    'SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions WHERE project_id = ?',
+    projectId,
+  );
   const activeNow = scalar(
     db,
-    'SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions WHERE expires_date IS NULL OR expires_date > ?',
+    'SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions WHERE project_id = ? AND (expires_date IS NULL OR expires_date > ?)',
+    projectId,
     now,
   );
 
@@ -43,19 +52,25 @@ export function buildInsights(db: DB): Insights {
   // Trial conversion: subscribers who started a trial, and how many also hold a paying subscription.
   const trials = scalar(
     db,
-    "SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions WHERE period_type IN ('trial','intro')",
+    "SELECT COUNT(DISTINCT subscriber_id) AS v FROM subscriptions WHERE project_id = ? AND period_type IN ('trial','intro')",
+    projectId,
   );
   const converted = scalar(
     db,
     `SELECT COUNT(DISTINCT t.subscriber_id) AS v
      FROM subscriptions t
      JOIN subscriptions p ON p.subscriber_id = t.subscriber_id AND p.period_type = 'normal'
-     WHERE t.period_type IN ('trial','intro')`,
+     WHERE t.project_id = ? AND t.period_type IN ('trial','intro')`,
+    projectId,
   );
   const trialConversion = { trials, converted, rate: trials ? Number(((converted / trials) * 100).toFixed(1)) : 0 };
 
-  const totalRevenue = scalar(db, 'SELECT COALESCE(SUM(price),0) AS v FROM receipts');
-  const payingCustomers = scalar(db, 'SELECT COUNT(DISTINCT subscriber_id) AS v FROM receipts WHERE price > 0');
+  const totalRevenue = scalar(db, 'SELECT COALESCE(SUM(price),0) AS v FROM receipts WHERE project_id = ?', projectId);
+  const payingCustomers = scalar(
+    db,
+    'SELECT COUNT(DISTINCT subscriber_id) AS v FROM receipts WHERE project_id = ? AND price > 0',
+    projectId,
+  );
   const ltv = {
     total_customers: totalCustomers,
     paying_customers: payingCustomers,
@@ -68,30 +83,33 @@ export function buildInsights(db: DB): Insights {
   const cohortRows = db
     .prepare(
       `SELECT substr(first_seen,1,7) AS cohort, COUNT(*) AS customers
-       FROM subscribers GROUP BY cohort ORDER BY cohort DESC LIMIT 12`,
+       FROM subscribers WHERE project_id = ? GROUP BY cohort ORDER BY cohort DESC LIMIT 12`,
     )
-    .all() as { cohort: string; customers: number }[];
+    .all(projectId) as { cohort: string; customers: number }[];
 
   const cohorts = cohortRows.map((c) => {
     const paying = scalar(
       db,
       `SELECT COUNT(DISTINCT r.subscriber_id) AS v FROM receipts r
        JOIN subscribers s ON s.id = r.subscriber_id
-       WHERE substr(s.first_seen,1,7) = ? AND r.price > 0`,
+       WHERE s.project_id = ? AND substr(s.first_seen,1,7) = ? AND r.price > 0`,
+      projectId,
       c.cohort,
     );
     const revenue = scalar(
       db,
       `SELECT COALESCE(SUM(r.price),0) AS v FROM receipts r
        JOIN subscribers s ON s.id = r.subscriber_id
-       WHERE substr(s.first_seen,1,7) = ?`,
+       WHERE s.project_id = ? AND substr(s.first_seen,1,7) = ?`,
+      projectId,
       c.cohort,
     );
     const activeNowCohort = scalar(
       db,
       `SELECT COUNT(DISTINCT sub.subscriber_id) AS v FROM subscriptions sub
        JOIN subscribers s ON s.id = sub.subscriber_id
-       WHERE substr(s.first_seen,1,7) = ? AND (sub.expires_date IS NULL OR sub.expires_date > ?)`,
+       WHERE s.project_id = ? AND substr(s.first_seen,1,7) = ? AND (sub.expires_date IS NULL OR sub.expires_date > ?)`,
+      projectId,
       c.cohort,
       now,
     );

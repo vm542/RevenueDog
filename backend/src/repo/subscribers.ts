@@ -6,6 +6,7 @@ export type PeriodType = 'normal' | 'trial' | 'intro';
 
 export interface SubscriberRow {
   id: string;
+  project_id: string;
   original_app_user_id: string;
   first_seen: string;
   last_seen: string;
@@ -13,6 +14,7 @@ export interface SubscriberRow {
 
 export interface SubscriptionRow {
   id: string;
+  project_id: string;
   subscriber_id: string;
   product_store_identifier: string;
   store: SubStore;
@@ -29,6 +31,7 @@ export interface SubscriptionRow {
 
 export interface NonSubscriptionRow {
   id: string;
+  project_id: string;
   subscriber_id: string;
   product_store_identifier: string;
   store: SubStore;
@@ -42,20 +45,24 @@ export interface AttributeRow {
   updated_at: string;
 }
 
-/** Resolves an app_user_id to its subscriber, following aliases. */
-export function findSubscriber(db: DB, appUserId: string): SubscriberRow | undefined {
-  const alias = db.prepare('SELECT subscriber_id FROM aliases WHERE app_user_id = ?').get(appUserId) as
-    | { subscriber_id: string }
-    | undefined;
+/** Resolves an app_user_id to its subscriber within a project, following aliases. */
+export function findSubscriber(db: DB, projectId: string, appUserId: string): SubscriberRow | undefined {
+  const alias = db
+    .prepare('SELECT subscriber_id FROM aliases WHERE project_id = ? AND app_user_id = ?')
+    .get(projectId, appUserId) as { subscriber_id: string } | undefined;
   if (!alias) return undefined;
   return db.prepare('SELECT * FROM subscribers WHERE id = ?').get(alias.subscriber_id) as
     | SubscriberRow
     | undefined;
 }
 
-/** Resolves or creates a subscriber for the given app_user_id (first-seen registration). */
-export function getOrCreateSubscriber(db: DB, appUserId: string): { subscriber: SubscriberRow; created: boolean } {
-  const existing = findSubscriber(db, appUserId);
+/** Resolves or creates a subscriber for the given app_user_id within a project. */
+export function getOrCreateSubscriber(
+  db: DB,
+  projectId: string,
+  appUserId: string,
+): { subscriber: SubscriberRow; created: boolean } {
+  const existing = findSubscriber(db, projectId, appUserId);
   if (existing) {
     db.prepare('UPDATE subscribers SET last_seen = ? WHERE id = ?').run(nowIso(), existing.id);
     return { subscriber: { ...existing, last_seen: nowIso() }, created: false };
@@ -63,15 +70,20 @@ export function getOrCreateSubscriber(db: DB, appUserId: string): { subscriber: 
   const now = nowIso();
   const sub: SubscriberRow = {
     id: genId('sub'),
+    project_id: projectId,
     original_app_user_id: appUserId,
     first_seen: now,
     last_seen: now,
   };
   db.transaction(() => {
     db.prepare(
-      'INSERT INTO subscribers (id, original_app_user_id, first_seen, last_seen) VALUES (@id, @original_app_user_id, @first_seen, @last_seen)',
+      'INSERT INTO subscribers (id, project_id, original_app_user_id, first_seen, last_seen) VALUES (@id, @project_id, @original_app_user_id, @first_seen, @last_seen)',
     ).run(sub);
-    db.prepare('INSERT INTO aliases (app_user_id, subscriber_id) VALUES (?, ?)').run(appUserId, sub.id);
+    db.prepare('INSERT INTO aliases (project_id, app_user_id, subscriber_id) VALUES (?, ?, ?)').run(
+      projectId,
+      appUserId,
+      sub.id,
+    );
   })();
   return { subscriber: sub, created: true };
 }
@@ -87,14 +99,19 @@ export function listAliases(db: DB, subscriberId: string): string[] {
 /** Aliases `newAppUserId` to the subscriber currently resolved by `appUserId`, merging if needed. */
 export function aliasSubscriber(
   db: DB,
+  projectId: string,
   appUserId: string,
   newAppUserId: string,
 ): { subscriber: SubscriberRow; created: boolean } {
   return db.transaction(() => {
-    const current = getOrCreateSubscriber(db, appUserId).subscriber;
-    const target = findSubscriber(db, newAppUserId);
+    const current = getOrCreateSubscriber(db, projectId, appUserId).subscriber;
+    const target = findSubscriber(db, projectId, newAppUserId);
     if (!target) {
-      db.prepare('INSERT INTO aliases (app_user_id, subscriber_id) VALUES (?, ?)').run(newAppUserId, current.id);
+      db.prepare('INSERT INTO aliases (project_id, app_user_id, subscriber_id) VALUES (?, ?, ?)').run(
+        projectId,
+        newAppUserId,
+        current.id,
+      );
       return { subscriber: current, created: true };
     }
     if (target.id === current.id) return { subscriber: current, created: false };
@@ -134,8 +151,8 @@ function mergeSubscribers(db: DB, fromId: string, intoId: string): void {
   db.prepare('DELETE FROM subscribers WHERE id = ?').run(fromId);
 }
 
-export function deleteSubscriber(db: DB, appUserId: string): boolean {
-  const sub = findSubscriber(db, appUserId);
+export function deleteSubscriber(db: DB, projectId: string, appUserId: string): boolean {
+  const sub = findSubscriber(db, projectId, appUserId);
   if (!sub) return false;
   db.prepare('DELETE FROM subscribers WHERE id = ?').run(sub.id);
   return true;
@@ -172,6 +189,7 @@ export function setAttribute(db: DB, subscriberId: string, key: string, value: s
 }
 
 export interface UpsertSubscriptionInput {
+  projectId: string;
   subscriberId: string;
   productStoreIdentifier: string;
   store: SubStore;
@@ -204,6 +222,7 @@ export function upsertSubscription(db: DB, input: UpsertSubscriptionInput): Subs
   }
   const row: SubscriptionRow = {
     id: genId('subscription'),
+    project_id: input.projectId,
     subscriber_id: input.subscriberId,
     product_store_identifier: input.productStoreIdentifier,
     store: input.store,
@@ -218,10 +237,10 @@ export function upsertSubscription(db: DB, input: UpsertSubscriptionInput): Subs
     will_renew: input.willRenew === false ? 0 : 1,
   };
   db.prepare(
-    `INSERT INTO subscriptions (id, subscriber_id, product_store_identifier, store, purchase_date,
+    `INSERT INTO subscriptions (id, project_id, subscriber_id, product_store_identifier, store, purchase_date,
       original_purchase_date, expires_date, unsubscribe_detected_at, billing_issues_detected_at,
       grace_period_expires_date, is_sandbox, period_type, will_renew)
-     VALUES (@id, @subscriber_id, @product_store_identifier, @store, @purchase_date, @original_purchase_date,
+     VALUES (@id, @project_id, @subscriber_id, @product_store_identifier, @store, @purchase_date, @original_purchase_date,
       @expires_date, @unsubscribe_detected_at, @billing_issues_detected_at, @grace_period_expires_date,
       @is_sandbox, @period_type, @will_renew)`,
   ).run(row);
@@ -230,10 +249,11 @@ export function upsertSubscription(db: DB, input: UpsertSubscriptionInput): Subs
 
 export function insertNonSubscription(
   db: DB,
-  input: { subscriberId: string; productStoreIdentifier: string; store: SubStore; purchaseDate: string; isSandbox?: boolean },
+  input: { projectId: string; subscriberId: string; productStoreIdentifier: string; store: SubStore; purchaseDate: string; isSandbox?: boolean },
 ): NonSubscriptionRow {
   const row: NonSubscriptionRow = {
     id: genId('txn'),
+    project_id: input.projectId,
     subscriber_id: input.subscriberId,
     product_store_identifier: input.productStoreIdentifier,
     store: input.store,
@@ -241,18 +261,20 @@ export function insertNonSubscription(
     is_sandbox: input.isSandbox ? 1 : 0,
   };
   db.prepare(
-    `INSERT INTO non_subscriptions (id, subscriber_id, product_store_identifier, store, purchase_date, is_sandbox)
-     VALUES (@id, @subscriber_id, @product_store_identifier, @store, @purchase_date, @is_sandbox)`,
+    `INSERT INTO non_subscriptions (id, project_id, subscriber_id, product_store_identifier, store, purchase_date, is_sandbox)
+     VALUES (@id, @project_id, @subscriber_id, @product_store_identifier, @store, @purchase_date, @is_sandbox)`,
   ).run(row);
   return row;
 }
 
-export function listSubscribers(db: DB, limit = 100, offset = 0): SubscriberRow[] {
+export function listSubscribers(db: DB, projectId: string, limit = 100, offset = 0): SubscriberRow[] {
   return db
-    .prepare('SELECT * FROM subscribers ORDER BY last_seen DESC LIMIT ? OFFSET ?')
-    .all(limit, offset) as SubscriberRow[];
+    .prepare('SELECT * FROM subscribers WHERE project_id = ? ORDER BY last_seen DESC LIMIT ? OFFSET ?')
+    .all(projectId, limit, offset) as SubscriberRow[];
 }
 
-export function countSubscribers(db: DB): number {
-  return (db.prepare('SELECT COUNT(*) AS c FROM subscribers').get() as { c: number }).c;
+export function countSubscribers(db: DB, projectId: string): number {
+  return (
+    db.prepare('SELECT COUNT(*) AS c FROM subscribers WHERE project_id = ?').get(projectId) as { c: number }
+  ).c;
 }

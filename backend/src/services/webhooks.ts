@@ -30,7 +30,7 @@ export function emitEvent(db: DB, input: EmitInput): void {
   };
   const body = JSON.stringify(payload);
 
-  for (const wh of activeWebhooks(db)) {
+  for (const wh of activeWebhooks(db, input.projectId)) {
     if (wh.events !== '*' && !wh.events.includes(event.type)) continue;
     const signature = createHmac('sha256', wh.secret).update(body).digest('hex');
     void deliver(db, wh.id, event.id, event.type, wh.url, body, signature);
@@ -78,12 +78,13 @@ export function checkExpirations(db: DB): number {
   const now = Date.now();
   const lapsed = db
     .prepare(
-      `SELECT s.subscriber_id, s.product_store_identifier, s.store, s.expires_date, s.period_type, s.billing_issues_detected_at,
+      `SELECT s.project_id, s.subscriber_id, s.product_store_identifier, s.store, s.expires_date, s.period_type, s.billing_issues_detected_at,
               (SELECT a.app_user_id FROM aliases a WHERE a.subscriber_id = s.subscriber_id LIMIT 1) AS app_user_id
        FROM subscriptions s
        WHERE s.expires_date IS NOT NULL AND s.expires_date < ? AND s.store != 'promotional'`,
     )
     .all(new Date(now).toISOString()) as {
+    project_id: string;
     subscriber_id: string;
     product_store_identifier: string;
     store: string;
@@ -97,6 +98,7 @@ export function checkExpirations(db: DB): number {
   for (const s of lapsed) {
     if (hasExpirationEvent(db, s.subscriber_id, s.product_store_identifier, s.expires_date)) continue;
     emitEvent(db, {
+      projectId: s.project_id,
       type: s.billing_issues_detected_at ? 'billing_issue' : 'expiration',
       subscriberId: s.subscriber_id,
       appUserId: s.app_user_id,

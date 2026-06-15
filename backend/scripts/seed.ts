@@ -15,6 +15,7 @@ import { createProduct, type ProductRow } from '../src/repo/products.js';
 import { createEntitlement } from '../src/repo/entitlements.js';
 import { createOffering } from '../src/repo/offerings.js';
 import { createExperiment } from '../src/repo/experiments.js';
+import { getDefaultProjectId } from '../src/repo/projects.js';
 
 function iso(d: Date): string {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -27,7 +28,8 @@ function pick<T>(arr: T[]): T {
 }
 
 function seed(db: DB): void {
-  const app = createApp(db, { name: 'Demo App', bundle_id: 'com.demo.app', package_name: 'com.demo.app' });
+  const projectId = getDefaultProjectId(db);
+  const app = createApp(db, projectId, { name: 'Demo App', bundle_id: 'com.demo.app', package_name: 'com.demo.app' });
 
   const products: Record<string, ProductRow> = {};
   const defs: { key: string; id: string; type: 'subscription' | 'non_consumable'; duration: string | null; price: number; name: string }[] = [
@@ -37,7 +39,7 @@ function seed(db: DB): void {
     { key: 'lifetime_ios', id: 'com.demo.lifetime', type: 'non_consumable', duration: null, price: 99.99, name: 'Lifetime' },
   ];
   for (const d of defs) {
-    products[d.key] = createProduct(db, {
+    products[d.key] = createProduct(db, projectId, {
       store_identifier: d.id,
       type: d.type,
       store: 'app_store',
@@ -45,7 +47,7 @@ function seed(db: DB): void {
       duration: d.duration,
     });
     // Mirror on Play store too.
-    createProduct(db, {
+    createProduct(db, projectId, {
       store_identifier: d.id,
       type: d.type,
       store: 'play_store',
@@ -54,13 +56,13 @@ function seed(db: DB): void {
     });
   }
 
-  const pro = createEntitlement(db, {
+  const pro = createEntitlement(db, projectId, {
     identifier: 'pro',
     display_name: 'Pro access',
     product_ids: defs.map((d) => products[d.key]!.id),
   });
 
-  const def = createOffering(db, {
+  const def = createOffering(db, projectId, {
     identifier: 'default',
     description: 'Standard paywall',
     is_current: true,
@@ -72,7 +74,7 @@ function seed(db: DB): void {
     ],
   });
 
-  const annualFirst = createOffering(db, {
+  const annualFirst = createOffering(db, projectId, {
     identifier: 'annual_first',
     description: 'Annual-first paywall (experiment)',
     packages: [
@@ -81,7 +83,7 @@ function seed(db: DB): void {
     ],
   });
 
-  const experiment = createExperiment(db, {
+  const experiment = createExperiment(db, projectId, {
     name: 'Annual-first paywall',
     status: 'running',
     control_offering_id: def.id,
@@ -92,23 +94,23 @@ function seed(db: DB): void {
   const priceByProduct: Record<string, number> = Object.fromEntries(defs.map((d) => [products[d.key]!.store_identifier, d.price]));
 
   const insertSub = db.prepare(
-    `INSERT INTO subscribers (id, original_app_user_id, first_seen, last_seen) VALUES (?, ?, ?, ?)`,
+    `INSERT INTO subscribers (id, project_id, original_app_user_id, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)`,
   );
-  const insertAlias = db.prepare('INSERT INTO aliases (app_user_id, subscriber_id) VALUES (?, ?)');
+  const insertAlias = db.prepare('INSERT INTO aliases (project_id, app_user_id, subscriber_id) VALUES (?, ?, ?)');
   const insertSubscription = db.prepare(
-    `INSERT INTO subscriptions (id, subscriber_id, product_store_identifier, store, purchase_date,
+    `INSERT INTO subscriptions (id, project_id, subscriber_id, product_store_identifier, store, purchase_date,
       original_purchase_date, expires_date, unsubscribe_detected_at, billing_issues_detected_at,
       grace_period_expires_date, is_sandbox, period_type, will_renew)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 0, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, 0, ?, ?)`,
   );
   const insertNonSub = db.prepare(
-    `INSERT INTO non_subscriptions (id, subscriber_id, product_store_identifier, store, purchase_date, is_sandbox)
-     VALUES (?, ?, ?, ?, ?, 0)`,
+    `INSERT INTO non_subscriptions (id, project_id, subscriber_id, product_store_identifier, store, purchase_date, is_sandbox)
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
   );
   const insertReceipt = db.prepare(
-    `INSERT INTO receipts (id, store, fetch_token, subscriber_id, product_id, product_store_identifier,
+    `INSERT INTO receipts (id, project_id, store, fetch_token, subscriber_id, product_id, product_store_identifier,
       presented_offering_identifier, price, currency, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'default', ?, 'USD', ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'default', ?, 'USD', ?)`,
   );
 
   const subProducts = [products.weekly_ios!, products.monthly_ios!, products.annual_ios!];
@@ -119,8 +121,8 @@ function seed(db: DB): void {
       const appUserId = `user_${i + 1}`;
       const firstSeenDays = Math.floor(Math.random() * 90);
       const first = daysAgo(firstSeenDays);
-      insertSub.run(subId, appUserId, iso(first), iso(daysAgo(Math.floor(Math.random() * firstSeenDays + 0.0001))));
-      insertAlias.run(appUserId, subId);
+      insertSub.run(subId, projectId, appUserId, iso(first), iso(daysAgo(Math.floor(Math.random() * firstSeenDays + 0.0001))));
+      insertAlias.run(projectId, appUserId, subId);
 
       // ~55% of users buy something
       if (Math.random() > 0.55) continue;
@@ -130,8 +132,8 @@ function seed(db: DB): void {
         // lifetime purchase
         const p = products.lifetime_ios!;
         const purchase = first;
-        insertNonSub.run(genId('txn'), subId, p.store_identifier, store, iso(purchase));
-        insertReceipt.run(genId('rcpt'), store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], iso(purchase));
+        insertNonSub.run(genId('txn'), projectId, subId, p.store_identifier, store, iso(purchase));
+        insertReceipt.run(genId('rcpt'), projectId, store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], iso(purchase));
         continue;
       }
 
@@ -142,16 +144,16 @@ function seed(db: DB): void {
       const periodType = isTrial ? 'trial' : 'normal';
       const billingIssue = Math.random() < 0.06 ? iso(daysAgo(2)) : null;
       insertSubscription.run(
-        genId('subscription'), subId, p.store_identifier, store, iso(purchase), iso(purchase), expires,
+        genId('subscription'), projectId, subId, p.store_identifier, store, iso(purchase), iso(purchase), expires,
         billingIssue, periodType, Math.random() < 0.85 ? 1 : 0,
       );
-      insertReceipt.run(genId('rcpt'), store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], iso(purchase));
+      insertReceipt.run(genId('rcpt'), projectId, store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], iso(purchase));
 
       // Some renewals add extra revenue points
       if (!isTrial && Math.random() < 0.4) {
         const renewDate = addDuration(iso(purchase), p.duration!);
         if (new Date(renewDate).getTime() < Date.now()) {
-          insertReceipt.run(genId('rcpt'), store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], renewDate);
+          insertReceipt.run(genId('rcpt'), projectId, store, genId('tok'), subId, p.id, p.store_identifier, priceByProduct[p.store_identifier], renewDate);
         }
       }
     }

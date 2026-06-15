@@ -13,6 +13,7 @@ export type EventType =
 
 export interface EventRow {
   id: string;
+  project_id: string;
   type: EventType;
   subscriber_id: string | null;
   app_user_id: string | null;
@@ -26,6 +27,7 @@ export interface EventRow {
 }
 
 export interface RecordEventInput {
+  projectId: string;
   type: EventType;
   subscriberId?: string | null;
   appUserId?: string | null;
@@ -41,6 +43,7 @@ export interface RecordEventInput {
 export function recordEvent(db: DB, input: RecordEventInput): EventRow {
   const row: EventRow = {
     id: genId('evt'),
+    project_id: input.projectId,
     type: input.type,
     subscriber_id: input.subscriberId ?? null,
     app_user_id: input.appUserId ?? null,
@@ -53,14 +56,16 @@ export function recordEvent(db: DB, input: RecordEventInput): EventRow {
     created_at: input.createdAt ?? nowIso(),
   };
   db.prepare(
-    `INSERT INTO events (id, type, subscriber_id, app_user_id, product_store_identifier, store, price, currency, period_type, expires_date, created_at)
-     VALUES (@id, @type, @subscriber_id, @app_user_id, @product_store_identifier, @store, @price, @currency, @period_type, @expires_date, @created_at)`,
+    `INSERT INTO events (id, project_id, type, subscriber_id, app_user_id, product_store_identifier, store, price, currency, period_type, expires_date, created_at)
+     VALUES (@id, @project_id, @type, @subscriber_id, @app_user_id, @product_store_identifier, @store, @price, @currency, @period_type, @expires_date, @created_at)`,
   ).run(row);
   return row;
 }
 
-export function listEvents(db: DB, limit = 50): EventRow[] {
-  return db.prepare('SELECT * FROM events ORDER BY created_at DESC LIMIT ?').all(limit) as EventRow[];
+export function listEvents(db: DB, projectId: string, limit = 50): EventRow[] {
+  return db
+    .prepare('SELECT * FROM events WHERE project_id = ? ORDER BY created_at DESC LIMIT ?')
+    .all(projectId, limit) as EventRow[];
 }
 
 export function hasExpirationEvent(db: DB, subscriberId: string, productStoreIdentifier: string, expiresDate: string): boolean {

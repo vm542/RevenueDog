@@ -8,7 +8,8 @@ export type DB = Database.Database;
 /** Version at which the base SCHEMA below is complete; later changes live in migrations.ts. */
 const BASE_SCHEMA_VERSION = 2;
 
-const SCHEMA = `
+/** The v2 base schema. Exported so migration tests can construct a realistic pre-upgrade DB. */
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
