@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { Config } from './config.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
+import { registerAccountRoutes } from './routes/accounts.js';
 import { registerPublicRoutes } from './routes/public.js';
 import { registerAdminRoutes } from './routes/admin.js';
 import { buildValidators } from './services/validators.js';
@@ -61,6 +62,7 @@ export function buildApp({ db, config, logger = false }: BuildAppOptions): Fasti
     reply.header('Content-Type', 'text/html').send(REDOC_HTML);
   });
 
+  registerAccountRoutes(app, db);
   registerPublicRoutes(app, db, validators);
   registerAdminRoutes(app, db, validators, config);
 

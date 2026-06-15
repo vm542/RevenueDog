@@ -45,6 +45,19 @@ export function listProjects(db: DB): ProjectRow[] {
   return db.prepare('SELECT * FROM projects ORDER BY created_at ASC').all() as ProjectRow[];
 }
 
+export function listProjectsByOrg(db: DB, orgId: string): ProjectRow[] {
+  return db
+    .prepare('SELECT * FROM projects WHERE org_id = ? ORDER BY created_at ASC')
+    .all(orgId) as ProjectRow[];
+}
+
 export function getProject(db: DB, id: string): ProjectRow | undefined {
   return db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined;
+}
+
+/** Verifies a project belongs to an org (tenant check for account-scoped routes). */
+export function getProjectForOrg(db: DB, orgId: string, id: string): ProjectRow | undefined {
+  return db.prepare('SELECT * FROM projects WHERE id = ? AND org_id = ?').get(id, orgId) as
+    | ProjectRow
+    | undefined;
 }

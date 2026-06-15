@@ -194,6 +194,31 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    // Hosted accounts: dashboard users (per organization) and opaque login sessions.
+    // Enables self-serve signup/login for the hosted version.
+    version: 5,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+      `);
+    },
+  },
 ];
 
 /** Latest schema version the code expects. */
