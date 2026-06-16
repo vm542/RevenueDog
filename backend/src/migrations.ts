@@ -272,6 +272,17 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    // Billing: each organization is on a plan with a Stripe customer/subscription
+    // linkage and a billing status synced from Stripe webhooks.
+    version: 8,
+    up: (db) => {
+      addColumn(db, 'organizations', 'plan', "TEXT NOT NULL DEFAULT 'free'");
+      addColumn(db, 'organizations', 'billing_status', "TEXT NOT NULL DEFAULT 'active'");
+      addColumn(db, 'organizations', 'stripe_customer_id', 'TEXT');
+      addColumn(db, 'organizations', 'stripe_subscription_id', 'TEXT');
+    },
+  },
 ];
 
 /** Latest schema version the code expects. */

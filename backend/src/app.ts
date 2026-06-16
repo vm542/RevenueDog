@@ -7,6 +7,7 @@ import type { DB } from './db.js';
 import { AppError } from './errors.js';
 import { RateLimiter } from './ratelimit.js';
 import { registerAccountRoutes } from './routes/accounts.js';
+import { registerBillingRoutes } from './routes/billing.js';
 import { registerNotificationRoutes } from './routes/notifications.js';
 import { registerPublicRoutes } from './routes/public.js';
 import { registerAdminRoutes } from './routes/admin.js';
@@ -73,6 +74,7 @@ export function buildApp({ db, config, logger = false }: BuildAppOptions): Fasti
   });
 
   registerAccountRoutes(app, db);
+  registerBillingRoutes(app, db);
   registerNotificationRoutes(app, db, config);
   registerPublicRoutes(app, db, validators);
   registerAdminRoutes(app, db, validators, config);

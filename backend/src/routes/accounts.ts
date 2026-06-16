@@ -47,6 +47,15 @@ function bearer(req: FastifyRequest): string {
   return token;
 }
 
+/** preHandler that resolves a dashboard session to req.user, for session-authenticated routes. */
+export function requireUser(db: DB) {
+  return async (req: FastifyRequest): Promise<void> => {
+    const user = getSessionUser(db, bearer(req));
+    if (!user) throw unauthorized('Invalid or expired session.');
+    req.user = user;
+  };
+}
+
 export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
   // --- Public: signup / login ---
   app.post('/v1/auth/signup', async (req, reply) => {
@@ -89,11 +98,7 @@ export function registerAccountRoutes(app: FastifyInstance, db: DB): void {
 
   // --- Session-authenticated account routes ---
   app.register(async (scoped) => {
-    scoped.addHook('preHandler', async (req) => {
-      const user = getSessionUser(db, bearer(req));
-      if (!user) throw unauthorized('Invalid or expired session.');
-      req.user = user;
-    });
+    scoped.addHook('preHandler', requireUser(db));
 
     scoped.post('/v1/auth/logout', async (req) => {
       deleteSession(db, bearer(req));
