@@ -2,7 +2,12 @@ import { createContext, useContext } from 'react';
 
 export interface Connection {
   baseUrl: string;
-  secretKey: string;
+  /** 'key' = self-host secret key; 'session' = hosted login (token + selected project). */
+  mode: 'key' | 'session';
+  secretKey?: string;
+  sessionToken?: string;
+  projectId?: string;
+  email?: string;
 }
 
 const STORAGE_KEY = 'revenuedog.connection';
@@ -35,11 +40,13 @@ export class ApiClient {
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
+    const token = this.conn.secretKey ?? this.conn.sessionToken ?? '';
     try {
       res = await fetch(`${this.conn.baseUrl.replace(/\/$/, '')}${path}`, {
         method,
         headers: {
-          Authorization: `Bearer ${this.conn.secretKey}`,
+          Authorization: `Bearer ${token}`,
+          ...(this.conn.mode === 'session' && this.conn.projectId ? { 'X-Project-Id': this.conn.projectId } : {}),
           ...(body ? { 'Content-Type': 'application/json' } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -70,14 +77,77 @@ export class ApiClient {
   }
 }
 
-export const ConnectionContext = createContext<{ conn: Connection; api: ApiClient; disconnect: () => void } | null>(
-  null,
-);
+export const ConnectionContext = createContext<{
+  conn: Connection;
+  api: ApiClient;
+  disconnect: () => void;
+  /** Switch the active project (hosted session mode only). */
+  setProject?: (projectId: string) => void;
+} | null>(null);
 
 export function useApi() {
   const ctx = useContext(ConnectionContext);
   if (!ctx) throw new Error('useApi must be used within a connected context');
   return ctx;
+}
+
+// ---- Hosted auth (session) — raw calls that don't need a Connection ----
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface SignupResult {
+  token: string;
+  user: { id: string; email: string; org_id: string };
+  organization: { id: string; name: string };
+  project: ProjectSummary;
+  secret_key: string;
+}
+
+export interface ApiKeyRow {
+  id: string;
+  key_prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+async function authRequest<T>(baseUrl: string, path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl.replace(/\/$/, '')}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, 'network_error', `Could not reach ${baseUrl}. Is the backend running?`);
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = (json as { error?: { code: string; message: string } }).error;
+    throw new ApiError(res.status, err?.code ?? 'error', err?.message ?? res.statusText);
+  }
+  return json as T;
+}
+
+export function signup(baseUrl: string, email: string, password: string) {
+  return authRequest<SignupResult>(baseUrl, '/v1/auth/signup', { email, password });
+}
+
+export function login(baseUrl: string, email: string, password: string) {
+  return authRequest<{ token: string; user: { id: string; email: string; org_id: string } }>(
+    baseUrl,
+    '/v1/auth/login',
+    { email, password },
+  );
+}
+
+export interface Me {
+  user: { id: string; email: string; org_id: string };
+  projects: ProjectSummary[];
 }
 
 // ---- API response types (mirror docs/API.md) ----

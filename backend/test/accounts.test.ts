@@ -112,6 +112,43 @@ describe('hosted accounts', () => {
   });
 });
 
+describe('session-authenticated admin (hosted dashboard)', () => {
+  it('drives the admin API with a session token + X-Project-Id header', async () => {
+    const account = (await post('/v1/auth/signup', { email: 'dash@example.com', password: 'hunter2pass' })).json();
+    const headers = { authorization: `Bearer ${account.token}`, 'x-project-id': account.project.id };
+
+    // Create a product via the admin API using the session (no secret key).
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/products',
+      headers,
+      payload: { store_identifier: 'com.s.m', type: 'subscription', store: 'app_store', display_name: 'M', duration: 'P1M' },
+    });
+    expect(created.statusCode).toBe(201);
+    const list = await app.inject({ method: 'GET', url: '/v1/admin/products', headers });
+    expect(list.json().items).toHaveLength(1);
+  });
+
+  it('requires the X-Project-Id header and rejects other orgs’ projects', async () => {
+    const a = (await post('/v1/auth/signup', { email: 'oa@example.com', password: 'hunter2pass' })).json();
+    const b = (await post('/v1/auth/signup', { email: 'ob@example.com', password: 'hunter2pass' })).json();
+
+    // Missing header → 401.
+    expect(
+      (await app.inject({ method: 'GET', url: '/v1/admin/products', headers: { authorization: `Bearer ${a.token}` } }))
+        .statusCode,
+    ).toBe(401);
+
+    // A's session pointed at B's project → 403.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/products',
+      headers: { authorization: `Bearer ${a.token}`, 'x-project-id': b.project.id },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
 describe('rate limiting', () => {
   it('returns 429 once the per-minute limit is exceeded', async () => {
     const limited = buildApp({

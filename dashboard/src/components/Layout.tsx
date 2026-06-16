@@ -13,6 +13,7 @@ const NAV = [
   { to: '/webhooks', label: 'Webhooks', icon: '🔔' },
   { to: '/billing', label: 'Billing', icon: '💳' },
   { to: '/audit', label: 'Audit Log', icon: '🛡️' },
+  { to: '/account', label: 'Account', icon: '🏢' },
   { to: '/settings', label: 'Apps & Keys', icon: '⚙️' },
 ];
 
@@ -52,13 +53,13 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className="text-base">📖</span> API Docs
           </a>
           <p className="truncate px-3 text-xs text-slate-500" title={conn.baseUrl}>
-            {conn.baseUrl}
+            {conn.mode === 'session' ? (conn.email ?? 'Signed in') : conn.baseUrl}
           </p>
           <button
             onClick={disconnect}
             className="w-full rounded-lg px-3 py-2 text-left text-sm text-slate-400 transition hover:bg-white/5 hover:text-slate-200"
           >
-            ⏏ Disconnect
+            {conn.mode === 'session' ? '⏏ Sign out' : '⏏ Disconnect'}
           </button>
         </div>
       </aside>

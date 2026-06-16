@@ -20,6 +20,7 @@ import { Experiments } from './pages/Experiments.tsx';
 import { Webhooks } from './pages/Webhooks.tsx';
 import { Billing } from './pages/Billing.tsx';
 import { Audit } from './pages/Audit.tsx';
+import { Account } from './pages/Account.tsx';
 import { Settings } from './pages/Settings.tsx';
 
 export default function App() {
@@ -34,6 +35,14 @@ export default function App() {
         clearConnection();
         setConn(null);
       },
+      setProject:
+        conn.mode === 'session'
+          ? (projectId: string) => {
+              const next = { ...conn, projectId };
+              saveConnection(next);
+              setConn(next);
+            }
+          : undefined,
     };
   }, [conn]);
 
@@ -62,6 +71,7 @@ export default function App() {
           <Route path="/webhooks" element={<Webhooks />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/audit" element={<Audit />} />
+          <Route path="/account" element={<Account />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

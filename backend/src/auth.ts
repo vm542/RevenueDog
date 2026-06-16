@@ -2,10 +2,10 @@ import type { FastifyRequest } from 'fastify';
 import type { DB } from './db.js';
 import { forbidden, unauthorized } from './errors.js';
 import { genKey, nowIso } from './ids.js';
-import { insertSecretKeyHash, resolveSecretKey } from './repo/accounts.js';
+import { getSessionUser, insertSecretKeyHash, resolveSecretKey } from './repo/accounts.js';
 import { getAppByPublicKey, type AppRow } from './repo/apps.js';
 import { recordSdkPing } from './repo/diagnostics.js';
-import { getDefaultProjectId } from './repo/projects.js';
+import { getDefaultProjectId, getProjectForOrg } from './repo/projects.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -48,10 +48,27 @@ export function requirePublicKey(db: DB) {
   };
 }
 
-/** Guard for /v1/admin/* endpoints: requires any known sk_ key. */
+/**
+ * Guard for /v1/admin/* endpoints. Accepts either a secret key (sk_), or — for the
+ * hosted dashboard — a login session (sess_) plus an X-Project-Id header naming a
+ * project in the user's organization.
+ */
 export function requireSecretKey(db: DB) {
   return async (req: FastifyRequest): Promise<void> => {
     const key = bearerKey(req);
+    if (key.startsWith('sess_')) {
+      const user = getSessionUser(db, key);
+      if (!user) throw unauthorized('Invalid or expired session.');
+      const projectId = req.headers['x-project-id'];
+      if (typeof projectId !== 'string' || !projectId) {
+        throw unauthorized('Session auth requires an X-Project-Id header.');
+      }
+      const project = getProjectForOrg(db, user.org_id, projectId);
+      if (!project) throw forbidden('That project does not belong to your organization.');
+      req.user = user;
+      req.projectId = project.id;
+      return;
+    }
     if (key.startsWith('pk_')) {
       const known = db.prepare('SELECT id FROM apps WHERE public_api_key = ?').get(key);
       if (known) throw forbidden('Public keys cannot be used on admin endpoints; use a secret key.');

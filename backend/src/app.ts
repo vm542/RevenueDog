@@ -28,7 +28,7 @@ export function buildApp({ db, config, logger = false }: BuildAppOptions): Fasti
   app.addHook('onRequest', async (req, reply) => {
     reply.header('Access-Control-Allow-Origin', config.corsOrigin);
     reply.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-    reply.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Platform,X-Platform-Version,X-SDK-Version,X-App-Version');
+    reply.header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Project-Id,X-Platform,X-Platform-Version,X-SDK-Version,X-App-Version');
     if (req.method === 'OPTIONS') {
       reply.code(204).send();
       return;
