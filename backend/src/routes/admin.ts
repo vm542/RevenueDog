@@ -422,6 +422,28 @@ export function registerAdminRoutes(app: FastifyInstance, db: DB, validators: Va
       return { items: listAudit(db, req.projectId!, Math.min(Number(q.limit ?? 100), 500)) };
     });
 
+    // --- Billing (resolves the org from the project so the dashboard's secret key works) ---
+    scoped.get('/v1/admin/billing', async (req) => {
+      const { getProject } = await import('../repo/projects.js');
+      const { getOrgBilling, computeUsage } = await import('../repo/billing.js');
+      const { planFor, isOverLimit } = await import('../billing.js');
+      const project = getProject(db, req.projectId!);
+      if (!project) throw notFound('No project.');
+      const billing = getOrgBilling(db, project.org_id);
+      const plan = planFor(billing?.plan);
+      const usage = computeUsage(db, project.org_id);
+      return {
+        plan: {
+          id: plan.id,
+          name: plan.name,
+          max_subscribers: Number.isFinite(plan.maxSubscribers) ? plan.maxSubscribers : null,
+        },
+        billing_status: billing?.billing_status ?? 'active',
+        usage,
+        over_limit: isOverLimit(plan, usage.subscribers),
+      };
+    });
+
     // --- SDK diagnostics ---
     scoped.get('/v1/admin/diagnostics', async (req) =>
       buildDiagnostics(db, req.projectId!, { app_store: config.appleValidation, play_store: config.googleValidation }),

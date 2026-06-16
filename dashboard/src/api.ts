@@ -241,6 +241,23 @@ export interface Insights {
   }[];
 }
 
+export interface Billing {
+  plan: { id: string; name: string; max_subscribers: number | null };
+  billing_status: string;
+  usage: { subscribers: number; events_30d: number };
+  over_limit: boolean;
+}
+
+export interface AuditEntry {
+  id: string;
+  project_id: string | null;
+  actor: string;
+  action: string;
+  target: string | null;
+  ip: string | null;
+  created_at: string;
+}
+
 export const EVENT_TYPES = [
   'initial_purchase',
   'renewal',

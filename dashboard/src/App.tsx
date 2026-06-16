@@ -18,6 +18,8 @@ import { Entitlements } from './pages/Entitlements.tsx';
 import { Offerings } from './pages/Offerings.tsx';
 import { Experiments } from './pages/Experiments.tsx';
 import { Webhooks } from './pages/Webhooks.tsx';
+import { Billing } from './pages/Billing.tsx';
+import { Audit } from './pages/Audit.tsx';
 import { Settings } from './pages/Settings.tsx';
 
 export default function App() {
@@ -58,6 +60,8 @@ export default function App() {
           <Route path="/offerings" element={<Offerings />} />
           <Route path="/experiments" element={<Experiments />} />
           <Route path="/webhooks" element={<Webhooks />} />
+          <Route path="/billing" element={<Billing />} />
+          <Route path="/audit" element={<Audit />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

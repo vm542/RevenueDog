@@ -11,6 +11,8 @@ const NAV = [
   { to: '/offerings', label: 'Offerings', icon: '🏷️' },
   { to: '/experiments', label: 'Experiments', icon: '🧪' },
   { to: '/webhooks', label: 'Webhooks', icon: '🔔' },
+  { to: '/billing', label: 'Billing', icon: '💳' },
+  { to: '/audit', label: 'Audit Log', icon: '🛡️' },
   { to: '/settings', label: 'Apps & Keys', icon: '⚙️' },
 ];
 

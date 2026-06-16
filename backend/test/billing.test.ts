@@ -97,6 +97,20 @@ describe('billing', () => {
     expect(after.billing_status).toBe('canceled');
   });
 
+  it('exposes billing to the dashboard via the project secret key (admin endpoint)', async () => {
+    const account = await signup();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/billing',
+      headers: { authorization: `Bearer ${account.secret_key}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.plan.id).toBe('free');
+    expect(body.usage).toHaveProperty('subscribers');
+    expect(body.over_limit).toBe(false);
+  });
+
   it('checkout fails clearly when Stripe is not configured', async () => {
     const { token } = await signup();
     const res = await app.inject({
